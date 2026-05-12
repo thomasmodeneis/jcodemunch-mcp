@@ -2,6 +2,28 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.3] — 2026-05-12 — Universal agent-installer prompt for non-Claude environments
+
+Quick-win addition from @rknighton ([#292](https://github.com/jgravelle/jcodemunch-mcp/issues/292)):
+ships `AGENT_INSTALL_UNIVERSAL.md`, a paste-and-go
+prompt users can hand to any agent/IDE to discover its native instruction
+mechanism and install jCodemunch (and jDocMunch) guidance there. The prompt
+identifies the environment, checks whether file writes are allowed, preserves
+existing user-authored instructions, respects the MCP-server-vs-skill
+responsibility split, keeps the native-shell-and-file-read exceptions intact,
+and emits a compatibility report users can paste into a follow-up issue.
+
+This is documentation-only — no behaviour change, no new tools, no migration.
+The compatibility reports drive demand signal for which client gets a
+first-class installer next.
+
+### Added
+
+- `AGENT_INSTALL_UNIVERSAL.md` — environment-agnostic
+  installer prompt for Codex, Cursor, Windsurf, Continue, Cline, JetBrains AI,
+  and any other agent/IDE not yet covered by `jcm install --skills`.
+- README pointer under the Documentation table.
+
 ## [1.108.2] — 2026-05-12 — Bound git-blame history walk + honour `git_root_identity=false`
 
 Two regressions reported by @MariusAdrian88 ([#294](https://github.com/jgravelle/jcodemunch-mcp/issues/294))

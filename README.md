@@ -59,6 +59,7 @@ Index once. Query cheaply. Keep moving.
 | [LANGUAGE_SUPPORT.md](LANGUAGE_SUPPORT.md) | Supported languages and parsing details |
 | [CONTEXT_PROVIDERS.md](CONTEXT_PROVIDERS.md) | dbt, Git, and custom context provider docs |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common issues and fixes |
+| [AGENT_INSTALL_UNIVERSAL.md](AGENT_INSTALL_UNIVERSAL.md) | Paste-and-go prompt for installing jCodemunch guidance into any agent/IDE (non-Claude environments) |
 
 ---
 ## Compact output — the second token axis (MUNCH)
