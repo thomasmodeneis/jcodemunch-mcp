@@ -2,6 +2,46 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.7] — 2026-05-12 — Windows hook path: forward slashes + path-shape-agnostic dedup
+
+Two coupled bugs that produced the recurring `PreToolUse:Read hook error /
+Failed with non-blocking status code: /usr/bin/bash: line 1:
+C:Python314Scriptsjcodemunch-mcp.EXE: command not found` loop on Windows:
+
+1. **`_hook_invocation()` wrote native-slash paths into settings.json.**
+   `shutil.which("jcodemunch-mcp")` returns `C:\Python314\Scripts\jcodemunch-mcp.EXE`
+   on Windows. JSON serialisation preserves the backslashes (`C:\\Python314\\...`),
+   but Claude Code spawns the hook through bash, which treats every `\` as
+   an escape character and silently eats them. The path becomes
+   `C:Python314Scriptsjcodemunch-mcp.EXE` at execution time → "command not
+   found." Fix: normalise to forward slashes on Windows. Forward slashes
+   work in every Windows API that accepts a path (CreateProcess, PowerShell,
+   Git Bash) and don't trigger bash escape parsing.
+
+2. **`_merge_hooks()` substring marker missed absolute-path forms.** The
+   marker `"jcodemunch-mcp hook-p"` failed to match
+   `C:/.../jcodemunch-mcp.EXE hook-pretooluse` because `.EXE ` interrupts
+   the substring. Every re-run of `init` thought it was a fresh install
+   and appended a second copy, so settings.json accumulated duplicates.
+   Fix: new `_extract_jcm_subcommand()` regex pulls the jcm subcommand
+   out of any path shape (bare name, absolute, .EXE/.exe, slashes either
+   way, quoted paths with spaces). `_merge_hooks` now compares
+   subcommands instead of raw strings — bare and absolute forms of the
+   same hook are recognised as the same hook.
+
+Together these mean: re-running `jcodemunch-mcp init` on Windows now
+produces working hook commands the first time, and subsequent re-runs
+don't accumulate duplicates regardless of how `shutil.which` resolves
+between invocations.
+
+### Stats
+
+- 19 new regression tests in `test_init_hooks_paths.py` covering both
+  bugs across every path shape we've seen in the wild.
+- Tool count: 81 (unchanged)
+
+---
+
 ## [1.108.6] — 2026-05-12
 
 ### Restore local-first index identity as the default ([#295](https://github.com/jgravelle/jcodemunch-mcp/pull/295), @MariusAdrian88)

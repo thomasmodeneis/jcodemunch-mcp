@@ -100,17 +100,28 @@ _MCP_ENTRY = {
 def _hook_invocation() -> str:
     """Return the executable path used in hook command strings.
 
-    Claude Code spawns hooks via /bin/sh on macOS/Linux, which uses a minimal
-    PATH that excludes ~/.local/bin, ~/Library/Python/*/bin, pipx venvs, etc.
-    Writing the bare name ``jcodemunch-mcp`` into settings.json works only when
-    the user's interactive PATH happens to match the subshell's PATH — fragile.
-    Resolve to an absolute path at install time so hooks work regardless of
-    the spawning shell. Quote if the path contains spaces.
+    Claude Code spawns hooks via /bin/sh on macOS/Linux and via bash on
+    Windows (Git Bash / MSYS), which uses a minimal PATH that excludes
+    ~/.local/bin, ~/Library/Python/*/bin, pipx venvs, etc. Writing the
+    bare name ``jcodemunch-mcp`` works only when the subshell's PATH
+    happens to match — fragile. Resolve to an absolute path at install
+    time so hooks work regardless of the spawning shell.
+
+    On Windows, normalise the resolved path to forward slashes. The
+    backslash form (e.g. ``C:\\Python314\\Scripts\\jcodemunch-mcp.EXE``)
+    survives JSON serialisation fine, but bash treats every ``\\`` as an
+    escape character and silently eats them — the path becomes
+    ``C:Python314Scriptsjcodemunch-mcp.EXE`` at execution time and the
+    hook fails with "command not found." Forward slashes work in every
+    Windows API that accepts a path and don't trigger bash escape
+    parsing.
     """
     resolved = shutil.which("jcodemunch-mcp")
     if not resolved:
         # Fall back to bare name; user will get a clear error if PATH is wrong.
         return "jcodemunch-mcp"
+    if platform.system() == "Windows":
+        resolved = resolved.replace("\\", "/")
     if " " in resolved:
         return f'"{resolved}"'
     return resolved
@@ -573,6 +584,31 @@ def _settings_json_path() -> Path:
     return Path.home() / ".claude" / "settings.json"
 
 
+_JCM_SUBCOMMAND_RE = re.compile(
+    r'jcodemunch[-_]mcp(?:\.[Ee][Xx][Ee])?["\']?\s+(\S+(?:\s+\S+)?)',
+)
+
+
+def _extract_jcm_subcommand(cmd: str) -> Optional[str]:
+    """Return the jcm subcommand (e.g. ``hook-pretooluse``) embedded in a hook
+    command string, or None when cmd doesn't invoke jcodemunch-mcp.
+
+    Survives all the path-shape variations we've seen in the wild:
+
+      * Bare name: ``jcodemunch-mcp hook-pretooluse``
+      * Absolute (POSIX-slash): ``C:/Python314/Scripts/jcodemunch-mcp.EXE hook-pretooluse``
+      * Absolute (back-slash, post-JSON): ``C:\\Python314\\Scripts\\jcodemunch-mcp.EXE hook-pretooluse``
+      * Quoted (path with spaces): ``"C:/Program Files/jcodemunch-mcp" hook-pretooluse``
+
+    Returns up to two whitespace-separated tokens so multi-arg subcommands
+    like ``hook-event create`` round-trip cleanly.
+    """
+    if not cmd:
+        return None
+    m = _JCM_SUBCOMMAND_RE.search(cmd)
+    return m.group(1).strip().strip('"').strip("'") if m else None
+
+
 def _merge_hooks(
     data: dict[str, Any],
     hook_defs: dict[str, list],
@@ -580,31 +616,45 @@ def _merge_hooks(
 ) -> list[str]:
     """Merge hook definitions into settings data, returning names of added events.
 
-    ``marker`` is a substring used to detect whether our hook is already
-    installed (e.g. ``"jcodemunch-mcp hook-event"``).
+    Duplicate detection is path-shape-agnostic: two commands that invoke
+    the same jcm subcommand (e.g. ``hook-pretooluse``) are considered the
+    same hook, whether one is written as the bare ``jcodemunch-mcp`` and
+    the other as a fully-resolved absolute path. This prevents the
+    accumulation of duplicate entries each time ``shutil.which`` resolves
+    to a different shape (bare → absolute → forward-slashed absolute).
 
-    Each rule is checked individually: if a rule's command already exists
-    in the event's hook list, it is skipped.  This allows multiple rules
-    for the same event to be added incrementally.
+    ``marker`` is kept for backwards compatibility but only used as a
+    legacy substring fallback when subcommand extraction fails.
     """
     hooks = data.setdefault("hooks", {})
     added: list[str] = []
 
     for event_name, event_hooks in hook_defs.items():
-        existing_cmds: set[str] = set()
+        existing_cmds: list[str] = []
+        existing_subcommands: set[str] = set()
         if event_name in hooks:
             for rule in hooks[event_name]:
                 for h in rule.get("hooks", []):
-                    existing_cmds.add(h.get("command", ""))
+                    cmd = h.get("command", "") or ""
+                    existing_cmds.append(cmd)
+                    sub = _extract_jcm_subcommand(cmd)
+                    if sub:
+                        existing_subcommands.add(sub)
 
         new_rules = []
         for rule in event_hooks:
             rule_cmds = [h.get("command", "") for h in rule.get("hooks", [])]
-            # Skip if this specific rule's command is already installed.
+            rule_subcommands = {
+                s for s in (_extract_jcm_subcommand(c) for c in rule_cmds) if s
+            }
+            # Primary check: any jcm subcommand already installed for this event?
+            if rule_subcommands and rule_subcommands & existing_subcommands:
+                continue
+            # Exact-match check (covers non-jcm hooks like sync_memory.py).
             if any(cmd in existing_cmds for cmd in rule_cmds if cmd):
                 continue
-            # Fallback: check against the broad marker for legacy detection.
-            if any(marker in cmd for cmd in existing_cmds):
+            # Legacy substring marker fallback.
+            if marker and any(marker in cmd for cmd in existing_cmds):
                 if any(marker in cmd for cmd in rule_cmds):
                     continue
             new_rules.append(rule)
