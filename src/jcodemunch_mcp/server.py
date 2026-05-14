@@ -160,8 +160,16 @@ _PROFILE_TIERS: dict[str, frozenset[str] | None] = {
     "full": None,  # None = no filtering
 }
 
-# Tools that must always remain visible/callable for runtime tier control.
+# Tools that survive tier filtering (always visible in core/standard tiers).
+# jcodemunch_guide is included so a one-line CLAUDE.md keeps working at any tier.
 _ALWAYS_PRESENT_TOOLS: frozenset[str] = frozenset({"set_tool_tier", "announce_model", "jcodemunch_guide"})
+
+# Subset of _ALWAYS_PRESENT_TOOLS that ALSO survives disabled_tools. These are
+# runtime tier controls — disabling them would lock the user out of switching
+# tiers in-session. jcodemunch_guide is intentionally NOT in this set (issue
+# #298): it's a documentation snippet, not a control surface, so users who
+# explicitly list it in disabled_tools should be honored.
+_UNDISABLEABLE_TOOLS: frozenset[str] = frozenset({"set_tool_tier", "announce_model"})
 
 # --- Runtime session tier state -------------------------------------------- #
 import threading
@@ -3282,8 +3290,8 @@ def _build_tools_list() -> list[Tool]:
                 "--generate`. Lets an agent keep a one-line CLAUDE.md (e.g. \"Call "
                 "jcodemunch_guide and strictly follow its instructions.\") instead of "
                 "pasting a static snippet that drifts from the installed version. "
-                "Always force-included so it can't be hidden by disabled_tools or tier "
-                "filtering. Idempotent, no repo context required."
+                "Idempotent, no repo context required. Honors disabled_tools and tier "
+                "filtering — list 'jcodemunch_guide' in disabled_tools to hide it."
             ),
             inputSchema={
                 "type": "object",
@@ -3299,15 +3307,20 @@ def _build_tools_list() -> list[Tool]:
     if allowed is not None:
         tools = [t for t in tools if t.name in allowed]
 
-    # Filter out disabled tools
+    # Filter out disabled tools. _UNDISABLEABLE_TOOLS (runtime tier controls)
+    # are never removed — disabling them would lock the user out of switching
+    # tiers in-session. Other meta tools (jcodemunch_guide) honor disabled_tools.
     disabled = config_module.get("disabled_tools", [])
     if disabled:
-        tools = [t for t in tools if t.name not in disabled]
+        disabled_set = set(disabled) - _UNDISABLEABLE_TOOLS
+        if disabled_set:
+            tools = [t for t in tools if t.name not in disabled_set]
 
-    # Force-include runtime tier-switch tools so users can never lose access
-    # to their own tier controls via config edits.
+    # Re-add tier-survivors that weren't disabled. Anything in
+    # _ALWAYS_PRESENT_TOOLS but explicitly in disabled_tools stays hidden.
+    disabled_set = set(disabled) if disabled else set()
     present_names = {t.name for t in tools}
-    missing = _ALWAYS_PRESENT_TOOLS - present_names
+    missing = _ALWAYS_PRESENT_TOOLS - present_names - (disabled_set - _UNDISABLEABLE_TOOLS)
     if missing:
         tools.extend(t for t in all_tools if t.name in missing)
 
@@ -3654,7 +3667,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # Project-level tool disabling: check if tool is disabled for this project
         # Global disabled tools are filtered out in list_tools() schema; project-level
         # rejection happens here since schema is global (can't be changed per-project).
-        if name not in _ALWAYS_PRESENT_TOOLS and config_module.is_tool_disabled(name, repo=repo_arg):
+        if name not in _UNDISABLEABLE_TOOLS and config_module.is_tool_disabled(name, repo=repo_arg):
             return [TextContent(type="text", text=json.dumps({
                 "error": (
                     f"Tool '{name}' is disabled in this project's configuration. "

@@ -2,6 +2,28 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.8] — 2026-05-14 — `jcodemunch_guide` honors `disabled_tools` (#298)
+
+Reported by **@kecsap** in #298: listing `jcodemunch_guide` or `set_tool_tier`
+in `disabled_tools` had no effect — both stayed in the initial MCP schema.
+
+The force-include path in `_build_tools_list()` always re-added every member
+of `_ALWAYS_PRESENT_TOOLS`, overriding the user's explicit opt-out.
+
+Fix: split the always-present guarantee into two scopes.
+
+- `_ALWAYS_PRESENT_TOOLS` (set_tool_tier, announce_model, jcodemunch_guide)
+  still survives **tier filtering** — core/standard tiers keep all three.
+- New `_UNDISABLEABLE_TOOLS` (set_tool_tier, announce_model) is the only set
+  that survives **disabled_tools** — these are runtime tier controls and
+  disabling them would lock the user out of switching tiers in-session.
+- `jcodemunch_guide` is a documentation snippet, not a control surface, so
+  it now honors `disabled_tools` for both schema visibility and call-time
+  rejection. Same fix applied to the project-level `is_tool_disabled` check
+  in `call_tool()`.
+
+`set_tool_tier` and `announce_model` remain undisableable as before.
+
 ## [1.108.7] — 2026-05-12 — Windows hook path: forward slashes + path-shape-agnostic dedup
 
 Two coupled bugs that produced the recurring `PreToolUse:Read hook error /

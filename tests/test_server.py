@@ -673,7 +673,8 @@ async def test_disabled_tools_filtered_from_schema(monkeypatch):
         assert "search_columns" not in tool_names
         assert "get_file_tree" in tool_names  # Not disabled
         # 81 default tools + test_summarizer (config cleared) - 2 disabled = 80
-        # set_tool_tier + announce_model + jcodemunch_guide are force-included even when disabled
+        # set_tool_tier + announce_model are undisableable; jcodemunch_guide
+        # is in _ALWAYS_PRESENT_TOOLS for tier survival but honors disabled_tools.
         assert len(tools) == 80
     finally:
         config_module._GLOBAL_CONFIG.clear()
@@ -1339,18 +1340,23 @@ async def test_jcodemunch_guide_returns_current_snippet():
 
 
 @pytest.mark.asyncio
-async def test_jcodemunch_guide_force_included_when_disabled():
-    """disabled_tools can't hide jcodemunch_guide — a one-line CLAUDE.md must keep working."""
+async def test_jcodemunch_guide_honors_disabled_tools():
+    """Issue #298: listing jcodemunch_guide in disabled_tools hides it. The
+    runtime tier controls (set_tool_tier, announce_model) remain undisableable."""
     from jcodemunch_mcp import config as config_module
 
     orig_config = config_module._GLOBAL_CONFIG.copy()
     config_module._GLOBAL_CONFIG.clear()
 
     try:
-        config_module._GLOBAL_CONFIG["disabled_tools"] = ["jcodemunch_guide"]
+        config_module._GLOBAL_CONFIG["disabled_tools"] = [
+            "jcodemunch_guide", "set_tool_tier", "announce_model",
+        ]
         tools = await list_tools()
         names = {t.name for t in tools}
-        assert "jcodemunch_guide" in names
+        assert "jcodemunch_guide" not in names
+        assert "set_tool_tier" in names
+        assert "announce_model" in names
     finally:
         config_module._GLOBAL_CONFIG.clear()
         config_module._GLOBAL_CONFIG.update(orig_config)
