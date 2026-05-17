@@ -20,6 +20,26 @@ def _compute_repo_id(folder_path: Path, store: Optional[IndexStore] = None) -> s
     return f"{decision.owner}/{decision.name}"
 
 
+def _local_provisional_repo_id(folder_path: Path) -> str:
+    """Compute a cheap local/path-hash repo ID without any git probing (jcm#303).
+
+    The not-indexed and canonical-candidate-found paths only need a stable
+    provisional identifier to return as `repo`; they don't need git-identity
+    resolution. `_compute_repo_id` would otherwise call `resolve_index_identity`,
+    which when `git_root_identity=true` (or similar config) falls through to
+    `detect_git_root` → `_read_origin_url`, spawning a `git config --get
+    remote.origin.url` subprocess. In large-worktree environments that
+    subprocess can hang, defeating the canonical-candidate fast return.
+
+    This helper bypasses git entirely. Real repo IDs for indexed entries are
+    surfaced via `canonical_candidates`; the provisional `repo` value is
+    descriptive, not authoritative.
+    """
+    from ..storage.git_root import _local_repo_name
+    resolved = Path(folder_path).expanduser().resolve()
+    return f"local/{_local_repo_name(resolved)}"
+
+
 def _git_common_dir_cheap(path: Path) -> Optional[Path]:
     """Resolve the canonical Git common-dir via filesystem reads (no subprocess).
 
@@ -229,6 +249,33 @@ def resolve_repo(path: str, storage_path: Optional[str] = None) -> dict:
             if built is not None:
                 return built
 
+    # Fast path 2 (jcm#303 follow-up, reported by @rknighton): canonical
+    # worktree discovery via cheap .git / commondir reads BEFORE any
+    # git-identity probing. If the input path is a worktree of an
+    # already-indexed canonical, return immediately with canonical_candidates
+    # and a cheap local provisional repo_id. This avoids `detect_git_root` →
+    # `_read_origin_url` subprocess calls that can hang in large-worktree
+    # environments under git_root_identity=true.
+    canonical_candidates = _find_canonical_candidates(p, store, all_repos)
+    if canonical_candidates:
+        repo_id = _local_provisional_repo_id(p)
+        elapsed = (time.perf_counter() - start) * 1000
+        return {
+            "found": True,
+            "indexed": False,
+            "repo": repo_id,
+            "canonical_candidates": canonical_candidates,
+            "hint": (
+                "this is a Git worktree of an already-indexed repo — use one of "
+                "canonical_candidates for read-only lookups, or index this "
+                "worktree explicitly if you need branch-local/uncommitted state"
+            ),
+            "_meta": {
+                "timing_ms": round(elapsed, 1),
+                "match_path": "canonical_candidate_fast",
+            },
+        }
+
     # Slow path: legacy compute-then-inspect for the (input, git_root)
     # candidate pair. Reached only when the fast paths above missed.
     candidates = [p]
@@ -245,34 +292,20 @@ def resolve_repo(path: str, storage_path: Optional[str] = None) -> dict:
         if built is not None:
             return built
 
-    # Not indexed — use cheap local identity for the provisional repo_id.
-    # No `store=` argument → skips the O(indexes) _existing_git_identity walk.
+    # Not indexed and no canonical match — use cheap local/path-hash identity
+    # for the provisional repo_id. Avoids `detect_git_root` → `_read_origin_url`
+    # subprocess hangs in large-worktree environments (jcm#303 follow-up).
     best = candidates[0]
-    repo_id = _compute_repo_id(best)
-
-    # Worktree-aware canonical-index discovery (issue #277):
-    # if the path is a Git worktree, look for already-indexed repos that
-    # share the same --git-common-dir and surface them as candidates.
-    # Uses filesystem reads (no subprocess) and the pre-fetched repo list
-    # so the O(N) loop is fast even at 40+ indexes (jcm#303).
-    canonical_candidates = _find_canonical_candidates(best, store, all_repos)
+    repo_id = _local_provisional_repo_id(best)
 
     elapsed = (time.perf_counter() - start) * 1000
-    response: dict = {
+    return {
         "found": True,
         "indexed": False,
         "repo": repo_id,
         "hint": "call index_folder to index this path",
         "_meta": {"timing_ms": round(elapsed, 1), "match_path": "not_indexed"},
     }
-    if canonical_candidates:
-        response["canonical_candidates"] = canonical_candidates
-        response["hint"] = (
-            "this is a Git worktree of an already-indexed repo — use one of "
-            "canonical_candidates for read-only lookups, or index this "
-            "worktree explicitly if you need branch-local/uncommitted state"
-        )
-    return response
 
 
 def _find_canonical_candidates(

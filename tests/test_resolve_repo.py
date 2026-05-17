@@ -398,3 +398,152 @@ class TestResolveRepoFastPaths:
         assert git_calls == [], (
             f"expected no git subprocess in fast path, got: {git_calls}"
         )
+
+
+class TestResolveRepoCanonicalCandidateFastPath:
+    """Regression: jcm#303 follow-up (reported by @rknighton against v1.108.15).
+    v1.108.14 fixed the O(N) common-dir scan, but the provisional repo_id
+    computation in the not-indexed branch still routed through
+    `resolve_index_identity` → `detect_git_root` → `_read_origin_url`, which
+    spawns `git config --get remote.origin.url`. In large-worktree environments
+    under `git_root_identity=true`, that subprocess hung. Fix: discover
+    canonical candidates BEFORE the slow path, return immediately with a
+    cheap local provisional repo_id.
+    """
+
+    def _git(self, *args, cwd):
+        import subprocess
+        env = {
+            "GIT_AUTHOR_NAME": "test",
+            "GIT_AUTHOR_EMAIL": "t@example.com",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "t@example.com",
+        }
+        result = subprocess.run(
+            ["git", *args],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            env={**__import__("os").environ, **env},
+        )
+        assert result.returncode == 0, f"git {args} failed: {result.stderr}"
+
+    def test_worktree_resolve_returns_via_fast_path(self, tmp_path):
+        """A worktree of an indexed repo hits canonical_candidate_fast,
+        not the legacy compute_repo_id path."""
+        canonical = tmp_path / "canonical"
+        canonical.mkdir()
+        self._git("init", "-b", "main", cwd=canonical)
+        (canonical / "main.py").write_text("def hello(): return 1\n", encoding="utf-8")
+        self._git("add", "main.py", cwd=canonical)
+        self._git("commit", "-m", "initial", cwd=canonical)
+
+        store_path = str(tmp_path / "store")
+        index_folder(
+            str(canonical),
+            use_ai_summaries=False,
+            storage_path=store_path,
+            identity_mode="local",
+        )
+
+        worktree = tmp_path / "wt"
+        self._git("worktree", "add", "-b", "feature", str(worktree), cwd=canonical)
+
+        result = resolve_repo(str(worktree), storage_path=store_path)
+        assert result["found"] is True
+        assert result["indexed"] is False
+        assert "canonical_candidates" in result
+        assert result["_meta"]["match_path"] == "canonical_candidate_fast", (
+            f"expected canonical_candidate_fast match_path, got: {result['_meta']}"
+        )
+
+    def test_worktree_resolve_does_not_invoke_read_origin_url(
+        self, tmp_path, monkeypatch
+    ):
+        """Validates the actual reporter symptom: resolving a worktree path
+        must not call `git config --get remote.origin.url` (the call that
+        was hanging in the reporter's 130-worktree environment)."""
+        canonical = tmp_path / "canonical"
+        canonical.mkdir()
+        self._git("init", "-b", "main", cwd=canonical)
+        (canonical / "main.py").write_text("def hello(): return 1\n", encoding="utf-8")
+        self._git("add", "main.py", cwd=canonical)
+        self._git("commit", "-m", "initial", cwd=canonical)
+
+        store_path = str(tmp_path / "store")
+        index_folder(
+            str(canonical),
+            use_ai_summaries=False,
+            storage_path=store_path,
+            identity_mode="local",
+        )
+
+        worktree = tmp_path / "wt"
+        self._git("worktree", "add", "-b", "feature", str(worktree), cwd=canonical)
+
+        # Track subprocess.run AFTER the index is built (the indexer itself
+        # may legitimately invoke git; we only care about resolve_repo).
+        import subprocess as _sp
+        original_run = _sp.run
+        calls = []
+
+        def tracking_run(*args, **kwargs):
+            calls.append(args[0] if args else kwargs.get("args"))
+            return original_run(*args, **kwargs)
+
+        monkeypatch.setattr(_sp, "run", tracking_run)
+        result = resolve_repo(str(worktree), storage_path=store_path)
+        assert "canonical_candidates" in result
+
+        origin_calls = [
+            c for c in calls
+            if c
+            and len(c) >= 4
+            and str(c[0]).lower().endswith(("git", "git.exe"))
+            and "config" in c
+            and "--get" in c
+            and "remote.origin.url" in c
+        ]
+        assert origin_calls == [], (
+            f"resolve_repo must not invoke `git config --get remote.origin.url`; "
+            f"that call was the cold-start hang in the reporter's environment. "
+            f"Got: {origin_calls}"
+        )
+
+
+class TestReadOriginUrlHardening:
+    """Regression: jcm#303 follow-up. `_read_origin_url` previously lacked the
+    defensive subprocess posture of `_git_toplevel` (no `stdin=DEVNULL`, no
+    env neutralisation). On Windows under heavy worktree fan-out the missing
+    stdin redirect was a likely contributor to the cold-start hang.
+    """
+
+    def test_read_origin_url_uses_devnull_and_neutralised_env(
+        self, tmp_path, monkeypatch
+    ):
+        from jcodemunch_mcp.storage import git_root as _gr
+
+        captured = {}
+
+        def fake_run(*args, **kwargs):
+            captured["args"] = args[0] if args else kwargs.get("args")
+            captured["stdin"] = kwargs.get("stdin")
+            captured["env"] = kwargs.get("env")
+            import types
+            return types.SimpleNamespace(returncode=0, stdout="git@github.com:foo/bar.git\n")
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        url = _gr._read_origin_url(tmp_path)
+
+        assert url == "git@github.com:foo/bar.git"
+        import subprocess
+        assert captured["stdin"] == subprocess.DEVNULL, (
+            "expected stdin=subprocess.DEVNULL to prevent blocking on stdin"
+        )
+        env = captured["env"]
+        assert env is not None
+        assert env.get("GIT_CONFIG_NOSYSTEM") == "1"
+        assert env.get("GIT_TERMINAL_PROMPT") == "0"
+        # GIT_CONFIG_GLOBAL should be devnull (platform-dependent value).
+        import os
+        assert env.get("GIT_CONFIG_GLOBAL") == os.devnull

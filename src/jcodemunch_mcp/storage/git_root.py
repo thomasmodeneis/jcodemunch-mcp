@@ -232,7 +232,26 @@ def _find_git_root(start: Path) -> Optional[Path]:
 
 
 def _read_origin_url(git_root: Path) -> Optional[str]:
-    """Return the `origin` remote URL for a git working tree, or None."""
+    """Return the `origin` remote URL for a git working tree, or None.
+
+    Defensive subprocess posture (jcm#303 follow-up): explicit
+    `stdin=subprocess.DEVNULL` so the call never blocks waiting on stdin,
+    plus env-neutralisation that matches `tools/resolve_repo._git_toplevel`:
+
+      - GIT_CONFIG_NOSYSTEM=1: system config doesn't influence the probe.
+      - GIT_CONFIG_GLOBAL=/dev/null: same for ~/.gitconfig.
+      - GIT_TERMINAL_PROMPT=0: prevent credential prompts on remotes
+        requiring auth.
+
+    Without these, large-worktree environments on Windows under
+    `git_root_identity=true` could hang here during resolve_repo's
+    provisional-id computation (reported by @rknighton).
+    """
+    import os as _os
+    env = _os.environ.copy()
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    env["GIT_CONFIG_GLOBAL"] = _os.devnull
+    env["GIT_TERMINAL_PROMPT"] = "0"
     try:
         result = subprocess.run(
             ["git", "config", "--get", "remote.origin.url"],
@@ -241,6 +260,8 @@ def _read_origin_url(git_root: Path) -> Optional[str]:
             capture_output=True,
             text=True,
             timeout=5,
+            stdin=subprocess.DEVNULL,
+            env=env,
         )
     except (OSError, subprocess.SubprocessError):
         logger.debug("git config probe failed for %s", git_root, exc_info=True)

@@ -2,6 +2,62 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.16] - 2026-05-17 - resolve_repo: provisional id bypass + `_read_origin_url` hardening (#303 follow-up)
+
+Patch release. @rknighton rebuilt the original 130-worktree fixture and
+validated against v1.108.15. The earlier fix handled the O(N) common-dir
+scan but missed an earlier step: when `git_root_identity=true` is
+configured, the provisional repo_id computation still routed through
+`resolve_index_identity` → `detect_git_root` → `_read_origin_url`,
+spawning `git config --get remote.origin.url`. That subprocess hung in
+the reporter's environment, so the cold-start `resolve_repo` against an
+unindexed worktree path still timed out.
+
+Stack trace (from his report):
+
+```
+resolve_repo
+  → _compute_repo_id
+  → resolve_index_identity
+  → detect_git_root
+  → _read_origin_url
+  → subprocess.run(["git", "config", "--get", "remote.origin.url"])
+```
+
+Two fixes:
+
+1. **Canonical-candidate discovery now runs BEFORE the slow path.**
+   Previously the order was: fast paths (exact source_root, containment)
+   → slow path (compute repo_id, inspect store) → canonical discovery.
+   Now: fast paths → canonical discovery → slow path. For worktree-of-
+   indexed environments (the reporter's case), this hits a new
+   `match_path: "canonical_candidate_fast"` return that uses a cheap
+   local provisional repo_id and skips all git-identity probing.
+
+2. **`_local_provisional_repo_id` helper** for the not-indexed final
+   branch. Returns `local/<basename>-<hash>` via direct call to
+   `_local_repo_name`, bypassing `resolve_index_identity` entirely. Real
+   indexed repo IDs continue to be surfaced via `canonical_candidates`;
+   the provisional `repo` value is descriptive, not authoritative.
+
+3. **`_read_origin_url` defensive hardening** (defense-in-depth):
+   `stdin=subprocess.DEVNULL` so the call can never block on stdin, plus
+   env-neutralisation matching `_git_toplevel` (`GIT_CONFIG_NOSYSTEM=1`,
+   `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_TERMINAL_PROMPT=0`). Benefits all
+   callers of this function (not just resolve_repo), including the
+   indexing flow.
+
+3 new regression tests in `tests/test_resolve_repo.py`:
+`TestResolveRepoCanonicalCandidateFastPath` covers the worktree
+fast-path return + the no-`remote.origin.url`-call invariant; `Test
+ReadOriginUrlHardening` covers the stdin/env defensive posture. Full
+suite: 4418 passing.
+
+The `#277` worktree-canonical discovery shape is preserved; existing
+`TestWorktreeCanonicalCandidates` tests pass unchanged. Wire change:
+worktree-of-indexed responses now carry `_meta.match_path:
+"canonical_candidate_fast"` instead of `"not_indexed"`. Additive.
+
 ## [1.108.15] - 2026-05-17 - `config --check` honors `.jcodemunch.jsonc` (#300 follow-up)
 
 Patch release. Surfaced by @slazarov as a follow-up to #300 on v1.108.14.
