@@ -1159,6 +1159,131 @@ class TestServerConfigCheck:
             assert "parse error" not in captured.lower()
 
 
+class TestConfigDisplayHonorsProjectOverride:
+    """Regression: jcm #300 follow-up (reported by @slazarov on issue #300
+    after v1.108.14). `config --check` validated the project file but the
+    displayed config values still came from _GLOBAL_CONFIG alone, so any
+    project-level override was silently invisible in diagnostic output.
+    """
+
+    def test_project_override_visible_in_config_output(self, capsys, monkeypatch):
+        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG, _PROJECT_CONFIGS
+        _GLOBAL_CONFIG.clear()
+        _PROJECT_CONFIGS.clear()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+
+            # Global config sets one value; project config overrides it.
+            storage = tmp / "storage"
+            storage.mkdir()
+            (storage / "config.jsonc").write_text(
+                '{"max_folder_files": 2000}', encoding="utf-8"
+            )
+
+            project = tmp / "project"
+            project.mkdir()
+            (project / ".jcodemunch.jsonc").write_text(
+                '{"max_folder_files": 9999}', encoding="utf-8"
+            )
+
+            monkeypatch.setenv("CODE_INDEX_PATH", str(storage))
+            monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp))
+            monkeypatch.setattr(Path, "cwd", classmethod(lambda cls: project))
+
+            from src.jcodemunch_mcp.server import _run_config
+            _run_config(check=False)
+
+            captured = capsys.readouterr().out
+            # Find the line for the overridden key and verify it carries the
+            # project value plus the [project] source tag. Other lines mention
+            # similar numbers (watch_debounce_ms defaults to 2000) so we have
+            # to match the specific row.
+            mff_lines = [
+                line for line in captured.splitlines()
+                if "max_folder_files" in line
+            ]
+            assert mff_lines, f"max_folder_files row missing; got: {captured}"
+            row = mff_lines[0]
+            assert "9999" in row, (
+                f"expected project-override value 9999 in max_folder_files row, got: {row}"
+            )
+            assert "2000" not in row, (
+                f"global value 2000 should not appear in overridden row, got: {row}"
+            )
+            assert "[project]" in row, (
+                f"expected '[project]' source tag on overridden row, got: {row}"
+            )
+
+    def test_check_section_reports_project_config_loaded(self, capsys, monkeypatch):
+        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG, _PROJECT_CONFIGS
+        _GLOBAL_CONFIG.clear()
+        _PROJECT_CONFIGS.clear()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            storage = tmp / "storage"
+            storage.mkdir()
+            (storage / "config.jsonc").write_text("{}", encoding="utf-8")
+
+            project = tmp / "project"
+            project.mkdir()
+            (project / ".jcodemunch.jsonc").write_text(
+                '{"max_folder_files": 1234}', encoding="utf-8"
+            )
+
+            monkeypatch.setenv("CODE_INDEX_PATH", str(storage))
+            monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp))
+            monkeypatch.setattr(Path, "cwd", classmethod(lambda cls: project))
+
+            # Skip CLAUDE.md drift check noise by writing the canonical tool list.
+            from src.jcodemunch_mcp.server import _CANONICAL_TOOL_NAMES
+            (tmp / ".claude").mkdir()
+            (tmp / ".claude" / "CLAUDE.md").write_text(
+                "\n".join(_CANONICAL_TOOL_NAMES), encoding="utf-8"
+            )
+
+            from src.jcodemunch_mcp.server import _run_config
+            _run_config(check=True)
+
+            captured = capsys.readouterr().out
+            # The Config File section now reports the project file status.
+            assert ".jcodemunch.jsonc loaded from cwd" in captured, (
+                f"expected project-config-loaded line in output; got: {captured}"
+            )
+
+    def test_no_project_file_keeps_global_only_behavior(self, capsys, monkeypatch):
+        """When cwd has no .jcodemunch.jsonc, output is unchanged from
+        pre-fix behavior — global values, no [project] tags."""
+        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG, _PROJECT_CONFIGS
+        _GLOBAL_CONFIG.clear()
+        _PROJECT_CONFIGS.clear()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            storage = tmp / "storage"
+            storage.mkdir()
+            (storage / "config.jsonc").write_text(
+                '{"max_folder_files": 2000}', encoding="utf-8"
+            )
+
+            project = tmp / "project"
+            project.mkdir()
+            # No .jcodemunch.jsonc here.
+
+            monkeypatch.setenv("CODE_INDEX_PATH", str(storage))
+            monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp))
+            monkeypatch.setattr(Path, "cwd", classmethod(lambda cls: project))
+
+            from src.jcodemunch_mcp.server import _run_config
+            _run_config(check=False)
+
+            captured = capsys.readouterr().out
+            assert "2000" in captured
+            assert "[project]" not in captured
+            assert ".jcodemunch.jsonc loaded" not in captured
+
+
 class TestClaudeMdDriftCheck:
     """config --check: CLAUDE.md drift detection."""
 

@@ -5570,6 +5570,45 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
     from . import config as _cfg
     from . import __version__
 
+    # Project-aware getter wrapper (issue #300 follow-up, surfaced by @slazarov).
+    # If cwd has a .jcodemunch.jsonc, load it and route _cfg.get() through a
+    # shim that injects repo=cwd when callers don't pass one explicitly. Without
+    # this, `config --check` reports the project file as valid but the printed
+    # config values still come from _GLOBAL_CONFIG alone, so any project-level
+    # override is silently invisible in diagnostic output.
+    _project_repo_key: Optional[str] = None
+    _project_loaded_keys: set = set()
+    _project_config_path_for_display = Path.cwd() / ".jcodemunch.jsonc"
+    if _project_config_path_for_display.is_file():
+        try:
+            _cfg.load_project_config(str(Path.cwd()))
+            _project_repo_key = str(Path.cwd().resolve())
+            try:
+                _pc_content = _project_config_path_for_display.read_text(encoding="utf-8")
+                import json as _json_pc
+                _project_loaded_keys = set(_json_pc.loads(_cfg._strip_jsonc(_pc_content)).keys())
+            except Exception:
+                _project_loaded_keys = set()
+        except Exception:
+            _project_repo_key = None
+            _project_loaded_keys = set()
+
+    class _ProjectAwareCfg:
+        """Routes get() through the project-merged config when cwd has one."""
+        def __init__(self, module, repo):
+            self.__dict__["_mod"] = module
+            self.__dict__["_repo"] = repo
+
+        def get(self, key, default=None, repo=None):
+            if repo is None:
+                repo = self._repo
+            return self._mod.get(key, default, repo=repo)
+
+        def __getattr__(self, name):
+            return getattr(self._mod, name)
+
+    _cfg = _ProjectAwareCfg(_cfg, _project_repo_key)
+
     # Handle --upgrade
     if upgrade:
         storage_path = os.environ.get("CODE_INDEX_PATH", str(Path.home() / ".code-index"))
@@ -5663,6 +5702,17 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
     else:
         print(f"  {yellow(WARN)} config.jsonc not found: {config_path}")
         print(f"  {dim('  Using defaults + env var fallbacks. Run `config --init` to create a config file.')}")
+    # Project-level .jcodemunch.jsonc visibility (jdoc #300 follow-up).
+    if _project_repo_key is not None:
+        print(
+            f"  {green(CHECK)} .jcodemunch.jsonc loaded from cwd: {_project_config_path_for_display} "
+            f"{dim(f'({len(_project_loaded_keys)} key(s) override global)')}"
+        )
+    elif _project_config_path_for_display.is_file():
+        print(
+            f"  {yellow(WARN)} .jcodemunch.jsonc present but failed to load: "
+            f"{_project_config_path_for_display}"
+        )
 
     # ── Indexing ──────────────────────────────────────────────────────────
     section("Indexing")
@@ -5680,6 +5730,8 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
             pass
 
     def _detect_source(key, default):
+        if key in _project_loaded_keys:
+            return "project"
         if key in _loaded_keys:
             return "config"
         env_var = next((e for e, c in _cfg.ENV_VAR_MAPPING.items() if c == key), None)

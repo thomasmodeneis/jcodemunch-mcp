@@ -2,6 +2,50 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.15] - 2026-05-17 - `config --check` honors `.jcodemunch.jsonc` (#300 follow-up)
+
+Patch release. Surfaced by @slazarov as a follow-up to #300 on v1.108.14.
+
+`config --check` already validated `.jcodemunch.jsonc` (per the v1.108.12
+fix that closed #300), but the rest of the configuration printout still
+read `_GLOBAL_CONFIG` only. So a user with a project override would see:
+
+```
+Checks
+  ✓ config.jsonc valid: ~/.code-index/config.jsonc
+  ✓ .jcodemunch.jsonc valid: <project>/.jcodemunch.jsonc
+```
+
+while the displayed config rows above the Checks section showed the
+global values, not the merged project-overridden ones. The validation
+passed but the diagnostic answer ("what config will actually apply if I
+run from here?") was silently wrong.
+
+Fix: `_run_config` now probes cwd for `.jcodemunch.jsonc` at entry, calls
+`load_project_config()` to populate `_PROJECT_CONFIGS[cwd]`, and routes
+all 33 `_cfg.get()` display calls through a lightweight project-aware
+shim that injects `repo=cwd` when callers don't pass one. The shim
+delegates everything else to the real config module so the surface is
+unchanged. Source detection (`_detect_source`) gains a "project" tier
+that takes precedence over "config" / "env" / "default"; overridden
+rows now read `[project]` instead of `[config]`.
+
+The "Config File" section also reports project-config status:
+
+```
+Config File
+  ✓ config.jsonc found: ~/.code-index/config.jsonc
+  ✓ .jcodemunch.jsonc loaded from cwd: <project>/.jcodemunch.jsonc (N key(s) override global)
+```
+
+So a glance answers the previous question without reading the full table.
+
+3 new tests in `tests/test_config.py::TestConfigDisplayHonorsProjectOverride`:
+project override visible in output with `[project]` tag, Check section
+reports project config loaded, no-project-file path stays on global-only
+behavior (pre-fix bytes for users without a `.jcodemunch.jsonc`). Full
+suite: 4415 passing.
+
 ## [1.108.14] - 2026-05-17 - resolve_repo perf at scale (#303)
 
 Reported by @rknighton with a complete root-cause analysis, local patch,
