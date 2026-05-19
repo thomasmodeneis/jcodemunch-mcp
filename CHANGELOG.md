@@ -2,6 +2,64 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.19] - 2026-05-19 - watcher fast-path honors `extra_ignore_patterns` (#300 follow-up)
+
+Patch release. Reported by @domis86 on #300 after v1.108.18.
+
+## The bug
+
+A file under an `extra_ignore_patterns` prefix was correctly skipped on
+the initial full-walk index, but on the next `modify` event the watcher
+re-indexed it. Verified via repro:
+
+```jsonc
+// .jcodemunch.jsonc
+{ "extra_ignore_patterns": ["docs/legacy/"] }
+```
+
+1. Initial `jcodemunch-mcp index` → `docs/legacy/...` correctly skipped.
+2. `jcodemunch-mcp watch ./` running.
+3. Edit `docs/legacy/.../File123.php`.
+4. Watcher detects change, re-indexes → file IS now in the index.
+
+Root cause: the watcher fast path in `index_folder` skips
+`discover_local_files` (the function that builds the `pathspec`
+ignore-filter) for performance. Only the language-extension check ran
+in the classification loop; `extra_ignore_patterns` never got applied.
+
+## The fix
+
+In the watcher fast path (`if changed_paths and incremental:` branch),
+compute `effective_extra` + `_fast_extra_spec` up front, then filter
+matching files out of the classification loop. "Deleted" events are
+let through unchanged: if a file is in the index from before the
+pattern was set, deleting from disk should still remove it from the
+index.
+
+Same `get_extra_ignore_patterns(..., repo=str(folder_path))` call used
+on the full walk, so project-level patterns from `.jcodemunch.jsonc`
+work consistently across both paths.
+
+## Tests
+
+3 new regression tests in `tests/test_watcher_memory_cache.py
+::TestFastPathExtraIgnorePatterns`:
+modified-file-under-ignore-stays-unindexed, added-file-under-ignore-
+stays-unindexed, modified-file-outside-ignore-still-indexed.
+
+Full suite: 4429 passing.
+
+## Follow-up audit
+
+@domis86's "note 2" asked whether other config options might also be
+forgotten on the watcher fast path. Audit answer: yes, several
+(`.gitignore` per-dir specs, file size cap, symlink protection,
+`SKIP_FILES_REGEX`, etc.). Tracked separately at #306 along with the
+shared-helper refactor that would prevent this class of bug going
+forward. This release fixes the user-reported case
+(`extra_ignore_patterns`) in isolation; the broader audit lands in a
+future minor.
+
 ## [1.108.18] - 2026-05-17 - summarizer runtime honors project config (#304)
 
 Patch release. Closes #304 (the runtime gap I flagged when shipping

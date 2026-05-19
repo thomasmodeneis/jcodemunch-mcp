@@ -172,3 +172,154 @@ class TestHashCacheMissFallback:
             "Sentinel must be distinguishable from a real content hash"
         )
         assert len(sentinel) != 64
+
+
+class TestFastPathExtraIgnorePatterns:
+    """Regression: #300 follow-up (reported by @domis86 on v1.108.18). The
+    watcher fast path in index_folder skipped `discover_local_files`, which
+    is where extra_ignore_patterns get applied. A file under an ignored
+    prefix that was correctly absent from the initial index would slip
+    back in on the next modify event.
+    """
+
+    def test_modified_file_under_ignore_pattern_stays_unindexed(self, tmp_path):
+        """An 'modified' watcher event on a file matching extra_ignore_patterns
+        must be skipped on the fast path."""
+        from jcodemunch_mcp.tools.index_folder import index_folder
+
+        # Project shape: one file under docs/legacy/ (ignored), one outside.
+        legacy_dir = tmp_path / "docs" / "legacy"
+        legacy_dir.mkdir(parents=True)
+        ignored_file = legacy_dir / "file123.py"
+        ignored_file.write_text("def in_ignored():\n    return 1\n")
+        kept_file = tmp_path / "main.py"
+        kept_file.write_text("def kept():\n    return 1\n")
+
+        storage = str(tmp_path / ".code-index")
+
+        # Initial full index with extra_ignore_patterns excluding docs/legacy/.
+        result = index_folder(
+            path=str(tmp_path),
+            use_ai_summaries=False,
+            storage_path=storage,
+            incremental=False,
+            extra_ignore_patterns=["docs/legacy/"],
+        )
+        assert result["success"]
+        # Sanity: the ignored file is not in the index.
+        from jcodemunch_mcp.storage import IndexStore
+        store = IndexStore(base_path=storage)
+        owner, name = result["repo"].split("/", 1)
+        index = store.load_index(owner, name)
+        files = set(index.file_hashes.keys()) if index.file_hashes else set()
+        assert "docs/legacy/file123.py" not in files, (
+            "initial index leaked an ignored file"
+        )
+
+        # Modify the ignored file and trigger the watcher fast-path reindex.
+        ignored_file.write_text("def in_ignored():\n    return 2  # changed\n")
+        watcher_changes = [
+            WatcherChange("modified", str(ignored_file.resolve()), "__cache_miss__"),
+        ]
+        result2 = index_folder(
+            path=str(tmp_path),
+            use_ai_summaries=False,
+            storage_path=storage,
+            incremental=True,
+            extra_ignore_patterns=["docs/legacy/"],
+            changed_paths=watcher_changes,
+        )
+        assert result2["success"]
+
+        # Re-load index and assert the ignored file is STILL not in it.
+        index_after = store.load_index(owner, name)
+        files_after = set(index_after.file_hashes.keys()) if index_after.file_hashes else set()
+        assert "docs/legacy/file123.py" not in files_after, (
+            "watcher fast path re-indexed an ignored file (#300 follow-up); "
+            f"index files: {sorted(files_after)}"
+        )
+
+    def test_added_file_under_ignore_pattern_stays_unindexed(self, tmp_path):
+        """An 'added' watcher event on a new file matching extra_ignore_patterns
+        must also be skipped."""
+        from jcodemunch_mcp.tools.index_folder import index_folder
+
+        legacy_dir = tmp_path / "docs" / "legacy"
+        legacy_dir.mkdir(parents=True)
+        kept_file = tmp_path / "main.py"
+        kept_file.write_text("def kept():\n    return 1\n")
+
+        storage = str(tmp_path / ".code-index")
+
+        # Initial index without the ignored file present.
+        result = index_folder(
+            path=str(tmp_path),
+            use_ai_summaries=False,
+            storage_path=storage,
+            incremental=False,
+            extra_ignore_patterns=["docs/legacy/"],
+        )
+        assert result["success"]
+
+        # Now create a file under the ignored prefix and fire an "added" event.
+        new_file = legacy_dir / "newcomer.py"
+        new_file.write_text("def newcomer():\n    return 1\n")
+        watcher_changes = [
+            WatcherChange("added", str(new_file.resolve()), ""),
+        ]
+        result2 = index_folder(
+            path=str(tmp_path),
+            use_ai_summaries=False,
+            storage_path=storage,
+            incremental=True,
+            extra_ignore_patterns=["docs/legacy/"],
+            changed_paths=watcher_changes,
+        )
+        assert result2["success"]
+
+        from jcodemunch_mcp.storage import IndexStore
+        store = IndexStore(base_path=storage)
+        owner, name = result["repo"].split("/", 1)
+        index_after = store.load_index(owner, name)
+        files_after = set(index_after.file_hashes.keys()) if index_after.file_hashes else set()
+        assert "docs/legacy/newcomer.py" not in files_after, (
+            "watcher fast path indexed a newly-added ignored file; "
+            f"index files: {sorted(files_after)}"
+        )
+
+    def test_modified_file_outside_ignore_still_indexed(self, tmp_path):
+        """Sanity: non-ignored files should still flow through the fast path
+        normally. The filter must not over-match."""
+        from jcodemunch_mcp.tools.index_folder import index_folder
+
+        kept_file = tmp_path / "main.py"
+        kept_file.write_text("def kept():\n    return 1\n")
+
+        storage = str(tmp_path / ".code-index")
+        result = index_folder(
+            path=str(tmp_path),
+            use_ai_summaries=False,
+            storage_path=storage,
+            incremental=False,
+            extra_ignore_patterns=["docs/legacy/"],
+        )
+        assert result["success"]
+
+        # Modify the kept file; watcher fast path should re-index it.
+        kept_file.write_text("def kept():\n    return 99  # updated\n")
+        watcher_changes = [
+            WatcherChange("modified", str(kept_file.resolve()), "__cache_miss__"),
+        ]
+        result2 = index_folder(
+            path=str(tmp_path),
+            use_ai_summaries=False,
+            storage_path=storage,
+            incremental=True,
+            extra_ignore_patterns=["docs/legacy/"],
+            changed_paths=watcher_changes,
+        )
+        assert result2["success"]
+        # changed should be >=1 since the file content actually changed.
+        assert result2.get("changed", 0) >= 1, (
+            f"non-ignored file should have been re-indexed: {result2}"
+        )

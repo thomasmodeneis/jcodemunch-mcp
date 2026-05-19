@@ -999,6 +999,25 @@ def index_folder(
         # When the watcher provides the exact change set, skip full directory
         # discovery (~3s on Windows) and only process the affected files.
         if changed_paths and incremental:
+            # Resolve extra_ignore_patterns up front for the fast path. The
+            # full-walk path (discover_local_files) applies these via pathspec;
+            # the watcher fast path skipped them entirely, so a file under an
+            # ignored prefix that was correctly absent from the initial index
+            # would slip back in on the next modify (#300 follow-up reported
+            # by @domis86). Build the spec once for use in the classification
+            # loop below.
+            _fast_effective_extra = get_extra_ignore_patterns(
+                extra_ignore_patterns, repo=str(folder_path)
+            )
+            _fast_extra_spec = None
+            if _fast_effective_extra:
+                try:
+                    _fast_extra_spec = pathspec.PathSpec.from_lines(
+                        "gitignore", _fast_effective_extra
+                    )
+                except Exception:
+                    _fast_extra_spec = None
+
             # Branch detection for watcher fast-path
             _fast_branch = _get_git_branch(folder_path)
             _fast_is_branch_delta = False
@@ -1075,6 +1094,21 @@ def index_folder(
                     ext = abs_path.suffix
                     if ext not in LANGUAGE_EXTENSIONS and get_language_for_path(str(abs_path)) is None:
                         continue
+
+                    # extra_ignore_patterns filter for the fast path (#300 follow-up).
+                    # The full-walk discovery path applies this via pathspec already;
+                    # the watcher fast path used to skip the filter, so an "added" or
+                    # "modified" event on an ignored file would still be indexed.
+                    # Deletions are allowed through: if the file is in the index from
+                    # before the ignore-pattern was set, the deletion should still
+                    # remove it. The match keeps the indexer's bookkeeping consistent
+                    # with the user's intent.
+                    if _fast_extra_spec is not None and change_type != "deleted":
+                        if _fast_extra_spec.match_file(rel_path):
+                            logger.debug(
+                                "SKIP extra_ignore (watcher fast path): %s", rel_path
+                            )
+                            continue
 
                     if change_type == "deleted":
                         if use_memory_hash_cache:
