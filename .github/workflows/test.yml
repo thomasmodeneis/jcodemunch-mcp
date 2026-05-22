@@ -40,7 +40,10 @@ jobs:
           uv build --sdist
           SDIST=$(ls dist/*.tar.gz | head -1)
           echo "Checking $SDIST for sensitive paths..."
-          FOUND=$(tar -tzf "$SDIST" | grep -E '(\.claude|\.env|\.pypirc|\.aws|\.ssh|id_rsa|id_ed25519|\.pem|\.key|credentials)' || true)
+          # Match common credential FILE shapes only, not any path that happens
+          # to contain the substring "credentials" (e.g., our legitimate source
+          # module src/jcodemunch_mcp/credentials.py and tests/test_credentials.py).
+          FOUND=$(tar -tzf "$SDIST" | grep -E '(/\.claude/|/\.env(\.|$)|/\.pypirc|/\.aws/|/\.ssh/|/id_rsa|/id_ed25519|\.pem$|\.key$|/credentials\.(json|yaml|yml|conf|cfg|ini|env)$|/aws_?credentials$|/google[-_]credentials)' || true)
           if [ -n "$FOUND" ]; then
             echo "ERROR: Sensitive paths found in sdist:"
             echo "$FOUND"
