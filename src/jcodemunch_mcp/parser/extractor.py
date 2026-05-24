@@ -5,6 +5,7 @@ import re
 from typing import Any, Optional
 from tree_sitter_language_pack import get_parser
 
+from .astro_shared import mask_html_comments_keep_offsets, split_astro_frontmatter
 from .symbols import Symbol, make_symbol_id, compute_content_hash
 from .languages import LanguageSpec, LANGUAGE_REGISTRY
 from .complexity import compute_complexity
@@ -240,6 +241,8 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
         symbols = _parse_blade_symbols(source_bytes, filename)
     elif language == "razor":
         symbols = _parse_razor_symbols(source_bytes, filename)
+    elif language == "astro":
+        symbols = _parse_astro_symbols(source_bytes, filename)
     elif language == "nix":
         symbols = _parse_nix_symbols(source_bytes, filename)
     elif language == "vue":
@@ -3805,6 +3808,39 @@ _RAZOR_CODE_BLOCK_RE = re.compile(r"@(?:functions|code)\s*\{", re.IGNORECASE)
 _RAZOR_PAGE_RE = re.compile(r'^@page\s+"([^"]+)"', re.MULTILINE)
 _RAZOR_INJECT_RE = re.compile(r'^@inject\s+(\S+)\s+(\w+)', re.MULTILINE)
 
+# Astro (.astro) — mixed-language components: TypeScript frontmatter + HTML template
+# + optional <script> (client JS) and <style> blocks.
+# Grammar reference: https://github.com/virchau13/tree-sitter-astro
+_ASTRO_SCRIPT_RE = re.compile(r"<script\b([^>]*)>(.*?)</script>", re.IGNORECASE | re.DOTALL)
+_ASTRO_STYLE_RE = re.compile(r"<style\b([^>]*)>(.*?)</style>", re.IGNORECASE | re.DOTALL)
+_ASTRO_SCRIPT_SRC_RE = re.compile(r"""\bsrc\s*=\s*["']([^"'<>]+)["']""", re.IGNORECASE)
+_ASTRO_SCRIPT_LANG_RE = re.compile(r"""\blang\s*=\s*["']([^"'<>]+)["']""", re.IGNORECASE)
+_ASTRO_SCRIPT_TYPE_RE = re.compile(r"""\btype\s*=\s*["']([^"'<>]+)["']""", re.IGNORECASE)
+_ASTRO_ID_RE = re.compile(r"""\bid\s*=\s*["']([^"'<>]+)["']""", re.IGNORECASE)
+
+
+def _astro_script_language(attrs: str) -> str:
+    """Infer parse language for an Astro <script> block."""
+    m = _ASTRO_SCRIPT_LANG_RE.search(attrs or "")
+    if not m:
+        return "javascript"
+    lang = m.group(1).strip().lower()
+    if lang in {"ts", "typescript"}:
+        return "typescript"
+    if lang == "tsx":
+        return "tsx"
+    if lang == "jsx":
+        return "jsx"
+    return "javascript"
+
+
+def _astro_script_is_json(attrs: str) -> bool:
+    """Return True when script type is JSON/JSON-LD and should be skipped."""
+    m = _ASTRO_SCRIPT_TYPE_RE.search(attrs or "")
+    if not m:
+        return False
+    return "json" in m.group(1).strip().lower()
+
 
 def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     """Extract symbols from Razor (.cshtml / .razor) templates.
@@ -4054,6 +4090,218 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     symbols.sort(key=lambda s: (s.line, s.byte_offset, s.name))
     return symbols
+
+
+def _parse_astro_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
+    """Extract symbols from Astro (.astro) components.
+
+    Strategy (mirrors virchau13/tree-sitter-astro grammar node types):
+    - Synthetic component symbol from filename  (→ "frontmatter" node)
+    - Frontmatter block (--- ... ---) re-parsed as TypeScript  (→ TypeScript AST)
+    - Inline <script> blocks re-parsed as JavaScript  (→ "script_element" node)
+    - <script src="..."> emitted as function symbols
+    - <style> blocks emitted as constant symbols  (→ "style_element" node)
+
+    Forward-compat: if tree-sitter-language-pack adds the Astro grammar in a
+    future release, ASTRO_SPEC.ts_language="astro" will activate the generic
+    spec-walk path automatically without changing any caller.
+    """
+    from pathlib import Path as _Path
+
+    raw_content = source_bytes.decode("utf-8", errors="replace")
+    frontmatter, template_body, fm_start_line, template_start_line = split_astro_frontmatter(raw_content)
+    content = raw_content[1:] if raw_content.startswith("\ufeff") else raw_content
+    component_name = _Path(filename).stem
+    total_lines = content.count("\n") + 1
+    symbols: list[Symbol] = []
+
+    component_symbol = Symbol(
+        id=make_symbol_id(filename, component_name, "class"),
+        file=filename,
+        name=component_name,
+        qualified_name=component_name,
+        kind="class",
+        language="astro",
+        signature=f"component {component_name}",
+        line=1,
+        end_line=total_lines,
+        byte_offset=0,
+        byte_length=len(source_bytes),
+        content_hash=compute_content_hash(source_bytes),
+    )
+    symbols.append(component_symbol)
+
+    line_starts = [0]
+    for idx, ch in enumerate(content):
+        if ch == "\n":
+            line_starts.append(idx + 1)
+
+    def _line_start_offset(line_no: int) -> int:
+        if line_no <= 1:
+            return 0
+        if line_no - 1 < len(line_starts):
+            return line_starts[line_no - 1]
+        return len(content)
+
+    def _line_for_offset(offset: int) -> int:
+        return content.count("\n", 0, offset) + 1
+
+    def _rewrap_symbol(
+        sym: Symbol,
+        block_offset: int,
+        line_offset_zero_based: int,
+        block_length: int,
+        parent: Optional[Symbol],
+        qualified_prefix: Optional[str] = None,
+    ) -> Symbol:
+        qualified_name = sym.qualified_name
+        if qualified_prefix:
+            qualified_name = f"{qualified_prefix}.{qualified_name}"
+        return Symbol(
+            id=make_symbol_id(filename, qualified_name, sym.kind),
+            file=filename,
+            name=sym.name,
+            qualified_name=qualified_name,
+            kind=sym.kind,
+            language=sym.language,
+            signature=sym.signature,
+            docstring=sym.docstring,
+            summary=sym.summary,
+            decorators=list(sym.decorators),
+            keywords=list(sym.keywords),
+            parent=parent.id if parent else None,
+            line=sym.line + line_offset_zero_based,
+            end_line=sym.end_line + line_offset_zero_based,
+            byte_offset=max(block_offset, block_offset + max(0, sym.byte_offset)),
+            byte_length=min(sym.byte_length, block_length),
+            content_hash=sym.content_hash,
+            ecosystem_context=sym.ecosystem_context,
+        )
+
+    # ── 1. Frontmatter block (--- ... ---)
+    if frontmatter is not None:
+        fm_start_offset = _line_start_offset(fm_start_line)
+        fm_line_off = fm_start_line - 1
+        fm_bytes = frontmatter.encode("utf-8")
+        ts_symbols = parse_file(frontmatter, f"{filename}#frontmatter.ts", "typescript")
+        for sym in ts_symbols:
+            symbols.append(_rewrap_symbol(
+                sym,
+                block_offset=fm_start_offset,
+                line_offset_zero_based=fm_line_off,
+                block_length=len(fm_bytes),
+                parent=component_symbol,
+                qualified_prefix=component_name,
+            ))
+
+    # ── 2. Template IDs (comments stripped, offsets preserved)
+    template_offset = _line_start_offset(template_start_line)
+    masked_template = mask_html_comments_keep_offsets(template_body)
+    seen_ids: set[str] = set()
+    for id_match in _ASTRO_ID_RE.finditer(masked_template):
+        elem_id = id_match.group(1)
+        if elem_id in seen_ids:
+            continue
+        seen_ids.add(elem_id)
+        absolute_offset = template_offset + id_match.start()
+        line_no = _line_for_offset(absolute_offset)
+        snippet = id_match.group(0).encode("utf-8")
+        symbols.append(Symbol(
+            id=make_symbol_id(filename, f"{component_name}.{elem_id}", "constant"),
+            file=filename,
+            name=elem_id,
+            qualified_name=f"{component_name}.{elem_id}",
+            kind="constant",
+            language="astro",
+            signature=id_match.group(0),
+            parent=component_symbol.id,
+            line=line_no,
+            end_line=line_no,
+            byte_offset=absolute_offset,
+            byte_length=len(snippet),
+            content_hash=compute_content_hash(snippet),
+        ))
+
+    # ── 3. <script> blocks (client-side JS/TS)
+    for script_idx, script_match in enumerate(_ASTRO_SCRIPT_RE.finditer(content), start=1):
+        attrs = script_match.group(1)
+        body = script_match.group(2)
+
+        # External <script src="..."> → lightweight function symbol
+        src_m = _ASTRO_SCRIPT_SRC_RE.search(attrs)
+        if src_m:
+            src_name = src_m.group(1)
+            snippet = script_match.group(0).encode("utf-8")
+            symbols.append(Symbol(
+                id=make_symbol_id(filename, f"script:{src_name}", "function"),
+                file=filename,
+                name=src_name,
+                qualified_name=f"{component_name}.script:{src_name}",
+                kind="function",
+                language="astro",
+                signature=f'<script src="{src_name}">',
+                line=_line_for_offset(script_match.start()),
+                end_line=_line_for_offset(script_match.end()),
+                byte_offset=script_match.start(),
+                byte_length=len(snippet),
+                content_hash=compute_content_hash(snippet),
+                parent=component_symbol.id,
+            ))
+            continue
+
+        # JSON/JSON-LD payloads are data, not executable code symbols.
+        if _astro_script_is_json(attrs):
+            continue
+
+        # Inline <script> → re-parse in inferred JS/TS language.
+        body_start = script_match.start(2)
+        body_bytes = body.encode("utf-8")
+        line_off = _line_for_offset(body_start) - 1
+        script_language = _astro_script_language(attrs)
+        script_symbols = parse_file(body, f"{filename}#script{script_idx}.{script_language}", script_language)
+        for sym in script_symbols:
+            symbols.append(_rewrap_symbol(
+                sym,
+                block_offset=body_start,
+                line_offset_zero_based=line_off,
+                block_length=len(body_bytes),
+                parent=component_symbol,
+                qualified_prefix=f"{component_name}.script{script_idx}",
+            ))
+
+    # ── 4. <style> blocks → constant symbol (like Razor)
+    for style_match in _ASTRO_STYLE_RE.finditer(content):
+        line_no = _line_for_offset(style_match.start())
+        style_name = f"style:{line_no}"
+        snippet = style_match.group(0).encode("utf-8")
+        symbols.append(Symbol(
+            id=make_symbol_id(filename, f"{component_name}.{style_name}", "constant"),
+            file=filename,
+            name=style_name,
+            qualified_name=f"{component_name}.{style_name}",
+            kind="constant",
+            language="astro",
+            signature=f"<style> at line {line_no}",
+            line=line_no,
+            end_line=_line_for_offset(style_match.end()),
+            byte_offset=style_match.start(),
+            byte_length=len(snippet),
+            content_hash=compute_content_hash(snippet),
+            parent=component_symbol.id,
+        ))
+
+    # Dedup while preserving insertion order for stable sort.
+    deduped: list[Symbol] = []
+    seen_symbol_keys: set[tuple[str, int, int, int]] = set()
+    for sym in symbols:
+        dedup_key = (sym.id, sym.line, sym.end_line, sym.byte_offset)
+        if dedup_key in seen_symbol_keys:
+            continue
+        seen_symbol_keys.add(dedup_key)
+        deduped.append(sym)
+
+    deduped.sort(key=lambda s: (s.line, s.byte_offset, s.name))
+    return deduped
 
 
 def _extract_razor_brace_block(content: str, brace_pos: int) -> Optional[tuple[int, int]]:

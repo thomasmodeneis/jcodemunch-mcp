@@ -65,6 +65,7 @@ LANGUAGE_EXTENSIONS = {
     ".cs": "csharp",
     ".cshtml": "razor",
     ".razor": "razor",
+    ".astro": "astro",
     ".c": "c",
     ".h": "cpp",
     ".cpp": "cpp",
@@ -589,6 +590,27 @@ CSHARP_SPEC = LanguageSpec(
 # scripts, style blocks, and (for Blazor) @page routes and @inject directives.
 RAZOR_SPEC = LanguageSpec(
     ts_language="html",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+# NOTE: .astro files are mixed-language Astro components — a TypeScript/JS
+# frontmatter section (between --- fences), HTML template body, optional
+# <script> and <style> blocks.  Extraction is handled by _parse_astro_symbols()
+# in extractor.py, which delegates frontmatter to the TypeScript parser and
+# inline <script> blocks to the JavaScript parser, matching the Razor strategy.
+# ts_language="astro" is a forward-compat marker: if tree-sitter-language-pack
+# ever bundles the virchau13/tree-sitter-astro grammar the generic spec-walk
+# path will activate automatically.
+ASTRO_SPEC = LanguageSpec(
+    ts_language="astro",
     symbol_node_types={},
     name_fields={},
     param_fields={},
@@ -1906,6 +1928,7 @@ LANGUAGE_REGISTRY = {
     "dart": DART_SPEC,
     "csharp": CSHARP_SPEC,
     "razor": RAZOR_SPEC,
+    "astro": ASTRO_SPEC,
     "c": C_SPEC,
     "swift": SWIFT_SPEC,
     "cpp": CPP_SPEC,

@@ -8,6 +8,8 @@ from collections import deque
 from pathlib import Path
 from typing import Optional
 
+from .astro_shared import mask_html_comments_keep_offsets, split_astro_frontmatter
+
 
 # ---------------------------------------------------------------------------
 # Per-language regex patterns
@@ -440,6 +442,7 @@ _VUE_TEMPLATE_COMPONENT = re.compile(
     r"""<(?P<tag>[A-Z][\w]*|[a-z]+-[\w-]+)[\s/>]""",
     re.MULTILINE,
 )
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
 _HTML_STANDARD_ELEMENTS = frozenset({
     # HTML5 elements
@@ -494,6 +497,19 @@ def _extract_vue_template_components(content: str) -> list[str]:
     return sorted(components)
 
 
+def _extract_astro_template_components(content: str) -> list[str]:
+    """Extract component tags from Astro template content."""
+    template = mask_html_comments_keep_offsets(content)
+
+    components: set[str] = set()
+    for cm in _VUE_TEMPLATE_COMPONENT.finditer(template):
+        tag = cm.group("tag")
+        if tag.lower() in _HTML_STANDARD_ELEMENTS:
+            continue
+        components.add(_kebab_to_pascal(tag) if "-" in tag else tag)
+    return sorted(components)
+
+
 def _extract_vue_imports(content: str) -> list[dict]:
     """Extract imports from Vue SFC: script imports + template component usage."""
     edges = _extract_js_imports(content)
@@ -518,11 +534,44 @@ def _extract_vue_imports(content: str) -> list[dict]:
     return edges
 
 
+def _extract_astro_imports(content: str) -> list[dict]:
+    """Extract imports from Astro frontmatter + synthetic template usage edges."""
+    frontmatter, template_body, _, _ = split_astro_frontmatter(content)
+    edges = _extract_js_imports(frontmatter) if frontmatter is not None else []
+
+    template_components = _extract_astro_template_components(template_body)
+    if not template_components:
+        return edges
+
+    imported_names: set[str] = set()
+    for edge in edges:
+        imported_names.update(edge.get("names", []))
+
+    for component in template_components:
+        if component in imported_names:
+            continue
+        edges.append({"specifier": component, "names": [component]})
+
+    deduped: list[dict] = []
+    seen_keys: set[tuple[Optional[str], tuple[str, ...]]] = set()
+    for edge in edges:
+        key = (
+            edge.get("specifier"),
+            tuple(edge.get("names", [])),
+        )
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(edge)
+    return deduped
+
+
 _LANGUAGE_EXTRACTORS = {
     "javascript": _extract_js_imports,
     "typescript": _extract_js_imports,
     "tsx": _extract_js_imports,
     "jsx": _extract_js_imports,
+    "astro": _extract_astro_imports,
     "vue": _extract_vue_imports,
     "python": _extract_python_imports,
     "go": _extract_go_imports,
@@ -569,7 +618,7 @@ def extract_imports(content: str, file_path: str, language: str) -> list[dict]:
         return []
 
 
-_JS_EXTENSIONS = (".js", ".ts", ".jsx", ".tsx", ".vue", ".mjs", ".cjs", ".svelte")
+_JS_EXTENSIONS = (".js", ".ts", ".jsx", ".tsx", ".vue", ".astro", ".mjs", ".cjs", ".svelte")
 _PY_EXTENSIONS = (".py",)
 _RUBY_EXTENSIONS = (".rb",)
 _ALL_EXTENSIONS = _JS_EXTENSIONS + _PY_EXTENSIONS + _RUBY_EXTENSIONS + (".go",)

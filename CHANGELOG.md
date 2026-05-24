@@ -2,6 +2,24 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [Unreleased]
+
+### Astro parser/import hardening
+
+- Astro frontmatter parsing now handles UTF-8 BOM, CRLF, and malformed fences
+  without crashing or drifting line offsets.
+- Astro symbol extraction now includes template `id="..."` constants while
+  ignoring IDs inside HTML comments.
+- Astro `<script>` parsing now infers `lang="ts|tsx|jsx"` and skips JSON/JSON-LD
+  data script blocks.
+- Astro import extraction now adds template component usage edges with the
+  same `{specifier, names}` shape as existing Vue/Nuxt edge producers.
+- `.astro` is now treated as a JS-like extension in import specifier resolution,
+  package registry heuristics, and Claude hook extension hints.
+- Added focused Astro regression fixtures/tests for BOM+CRLF, malformed
+  frontmatter, multi-script parsing, line mapping, synthetic-edge dedup, and
+  no-crash behavior.
+
 ## [1.108.22] - 2026-05-22 - keyring credentials, metadata-only cache, init --minimal, docstring opt-out, git-SHA verification, sigstore release signing
 
 Six additive enterprise-hardening items in one release. All purely

@@ -75,3 +75,7 @@ index.php
 
 # Local docs notes
 docs/
+
+# macOS
+.DS_Store
+**/.DS_Store

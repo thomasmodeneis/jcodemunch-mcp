@@ -1501,6 +1501,12 @@ def test_parse_vue_no_script():
     assert symbols == []
 
 
+def test_get_language_for_astro_path():
+    """Astro files are mapped to the astro parser."""
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    assert get_language_for_path("src/components/Hero.astro") == "astro"
+
+
 EJS_SOURCE = '''<!DOCTYPE html>
 <html>
 <head><title><%= title %></title></head>
