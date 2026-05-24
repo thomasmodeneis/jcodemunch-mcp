@@ -342,12 +342,13 @@ class TestResolveSpecifier:
         ("./helpers.js", "src/utils/other.js", SOURCE_FILES, "src/utils/helpers.js"),
         ("./helpers", "src/utils/other.js", SOURCE_FILES, "src/utils/helpers.js"),
         ("../components/Button", "src/pages/Home.tsx", SOURCE_FILES, "src/components/Button.tsx"),
+        ("../components/Header", "src/pages/Home.astro", {"src/components/Header.astro"}, "src/components/Header.astro"),
         ("./utils", "src/app.js", SOURCE_FILES, "src/utils/index.js"),
         ("../app", "src/utils/helpers.js", SOURCE_FILES, "src/app.js"),
         ("react", "src/app.js", SOURCE_FILES, None),
         ("src/app.js", "other.js", SOURCE_FILES, "src/app.js"),
         (".helpers", "lib/module.py", {"lib/helpers.py"}, None),
-    ], ids=["js_with_ext", "js_without_ext", "tsx_component", "index_resolution", "dotdot", "unresolvable_pkg", "absolute_match", "python_relative"])
+    ], ids=["js_with_ext", "js_without_ext", "tsx_component", "astro_component", "index_resolution", "dotdot", "unresolvable_pkg", "absolute_match", "python_relative"])
     def test_basic_resolution(self, specifier, from_file, files, expected):
         result = resolve_specifier(specifier, from_file, files)
         assert result == expected

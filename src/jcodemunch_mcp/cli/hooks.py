@@ -35,7 +35,7 @@ _CODE_EXTENSIONS: set[str] = {
     ".lua", ".luau",
     ".ex", ".exs",
     ".erl", ".hrl",
-    ".vue", ".svelte",
+    ".vue", ".astro", ".svelte",
     ".sql",
     ".gd",       # GDScript
     ".al",       # AL (Business Central)
