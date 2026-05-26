@@ -7,6 +7,14 @@
 >
 > `uvx` equivalent: `uvx --from https://github.com/jgravelle/jcodemunch-mcp/releases/download/v1.108.24/jcodemunch_mcp-1.108.24-py3-none-any.whl jcodemunch-mcp`
 >
+> **Or, simplest of all (always the latest, no version to track):** install straight from the repo. Requires `git`; builds from source.
+>
+> ```
+> pip install git+https://github.com/jgravelle/jcodemunch-mcp.git
+> ```
+>
+> `uvx` equivalent: `uvx --from git+https://github.com/jgravelle/jcodemunch-mcp.git jcodemunch-mcp`
+>
 > Sibling packages (`jdocmunch-mcp`, `jdatamunch-mcp`) are unaffected and install normally. Status, timeline, and live updates: [issue #308](https://github.com/jgravelle/jcodemunch-mcp/issues/308). Mike Fiedler at PSF Security is out through May 26; the broader PyPI admin queue may resolve sooner.
 
 #### One-click installs:

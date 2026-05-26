@@ -328,6 +328,10 @@ The `https://github.com/.../v1.108.24/...whl` URL is the temporary
 PyPI-quarantine workaround (see the banner at the top of README.md).
 Once the quarantine clears, swap the args back to `["jcodemunch-mcp"]`.
 
+Prefer not to track a version? Point `--from` at the repo instead and it
+always pulls the latest (requires `git`; builds from source):
+`["--from", "git+https://github.com/jgravelle/jcodemunch-mcp.git", "jcodemunch-mcp"]`.
+
 If you already have jcodemunch configured for Claude Code or Gemini CLI,
 `agy plugin import claude` (or `import gemini`) can pull the existing
 config across without re-editing JSON.
