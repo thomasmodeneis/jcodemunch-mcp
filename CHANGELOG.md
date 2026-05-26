@@ -4,6 +4,8 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.108.25] - 2026-05-26 - secret-file detection: basename + secret-store dirs
+
 ### Fixed
 
 - `is_secret_file()` no longer matches `SECRET_PATTERNS` against the full file

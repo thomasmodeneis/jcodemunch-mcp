@@ -1,8 +1,8 @@
 #### One-click installs:
 
-[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_jCodeMunch-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white)](vscode:mcp/install?%7B%22name%22%3A%20%22jcodemunch%22%2C%20%22command%22%3A%20%22uvx%22%2C%20%22args%22%3A%20%5B%22--from%22%2C%20%22https%3A//github.com/jgravelle/jcodemunch-mcp/releases/download/v1.108.24/jcodemunch_mcp-1.108.24-py3-none-any.whl%22%2C%20%22jcodemunch-mcp%22%5D%7D)
-[![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install-24bfa5?style=for-the-badge&logo=visualstudiocode&logoColor=white)](vscode-insiders:mcp/install?%7B%22name%22%3A%20%22jcodemunch%22%2C%20%22command%22%3A%20%22uvx%22%2C%20%22args%22%3A%20%5B%22--from%22%2C%20%22https%3A//github.com/jgravelle/jcodemunch-mcp/releases/download/v1.108.24/jcodemunch_mcp-1.108.24-py3-none-any.whl%22%2C%20%22jcodemunch-mcp%22%5D%7D)
-[![Install in Cursor](https://img.shields.io/badge/Cursor-Install_jCodeMunch-000000?style=for-the-badge&logo=cursor&logoColor=white)](cursor://anysphere.cursor-deeplink/mcp/install?name=jcodemunch&config=eyJjb21tYW5kIjogInV2eCIsICJhcmdzIjogWyItLWZyb20iLCAiaHR0cHM6Ly9naXRodWIuY29tL2pncmF2ZWxsZS9qY29kZW11bmNoLW1jcC9yZWxlYXNlcy9kb3dubG9hZC92MS4xMDguMjQvamNvZGVtdW5jaF9tY3AtMS4xMDguMjQtcHkzLW5vbmUtYW55LndobCIsICJqY29kZW11bmNoLW1jcCJdfQ==)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_jCodeMunch-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white)](vscode:mcp/install?%7B%22name%22%3A%20%22jcodemunch%22%2C%20%22command%22%3A%20%22uvx%22%2C%20%22args%22%3A%20%5B%22--from%22%2C%20%22https%3A//github.com/jgravelle/jcodemunch-mcp/releases/download/v1.108.25/jcodemunch_mcp-1.108.25-py3-none-any.whl%22%2C%20%22jcodemunch-mcp%22%5D%7D)
+[![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install-24bfa5?style=for-the-badge&logo=visualstudiocode&logoColor=white)](vscode-insiders:mcp/install?%7B%22name%22%3A%20%22jcodemunch%22%2C%20%22command%22%3A%20%22uvx%22%2C%20%22args%22%3A%20%5B%22--from%22%2C%20%22https%3A//github.com/jgravelle/jcodemunch-mcp/releases/download/v1.108.25/jcodemunch_mcp-1.108.25-py3-none-any.whl%22%2C%20%22jcodemunch-mcp%22%5D%7D)
+[![Install in Cursor](https://img.shields.io/badge/Cursor-Install_jCodeMunch-000000?style=for-the-badge&logo=cursor&logoColor=white)](cursor://anysphere.cursor-deeplink/mcp/install?name=jcodemunch&config=eyJjb21tYW5kIjogInV2eCIsICJhcmdzIjogWyItLWZyb20iLCAiaHR0cHM6Ly9naXRodWIuY29tL2pncmF2ZWxsZS9qY29kZW11bmNoLW1jcC9yZWxlYXNlcy9kb3dubG9hZC92MS4xMDguMjUvamNvZGVtdW5jaF9tY3AtMS4xMDguMjUtcHkzLW5vbmUtYW55LndobCIsICJqY29kZW11bmNoLW1jcCJdfQ==)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-CLI_install-D97757?style=for-the-badge&logo=anthropic&logoColor=white)](#works-with)
 [![Codex CLI](https://img.shields.io/badge/Codex_CLI-Config_install-10a37f?style=for-the-badge&logo=openai&logoColor=white)](#works-with)
 
@@ -105,9 +105,9 @@ is a byte the agent doesn't pay to read.
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.25](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.25)** (2026-05-26) — secret-file detection: basename + secret-store dirs
 - **[v1.108.24](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.24)** (2026-05-26) — check_edit_safe edit-safety preflight
 - **[v1.108.23](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.23)** (2026-05-24) — Astro (.astro) language support
-- **[v1.108.22](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.22)** (2026-05-22) — keyring credentials, metadata-only cache, init --minimal, docstring opt-out, git-SHA verification, sigstore release signing
 <!-- WHATSNEW:END -->
 
 ![License](https://img.shields.io/badge/license-dual--use-blue)
@@ -523,13 +523,13 @@ Get a structured PR review in under 5 seconds:
 
 ```yaml
 # .github/workflows/speedreview.yml
-- uses: jgravelle/jcodemunch-mcp/speedreview@v1.108.24
+- uses: jgravelle/jcodemunch-mcp/speedreview@v1.108.25
   with:
     groq_api_key: ${{ secrets.GROQ_API_KEY }}
 ```
 
 For stricter supply-chain hygiene, pin to the tag's commit SHA instead of the
-tag itself (`git ls-remote https://github.com/jgravelle/jcodemunch-mcp refs/tags/v1.108.24`).
+tag itself (`git ls-remote https://github.com/jgravelle/jcodemunch-mcp refs/tags/v1.108.25`).
 The action installs pinned package versions by default and exposes
 `jcodemunch_version` / `openai_version` inputs for override.
 
