@@ -54,6 +54,15 @@ If you only remember one thing from this guide, make it this:
 
 # 1. Quick Start
 
+> **PyPI review in progress ([#308](https://github.com/jgravelle/jcodemunch-mcp/issues/308)):**
+> `pip install jcodemunch-mcp` and bare `uvx jcodemunch-mcp` won't resolve during
+> the review. Install from the repo instead:
+> `pip install "git+https://github.com/jgravelle/jcodemunch-mcp.git"`, or in
+> MCP-client config use `"command": "uvx", "args": ["--from",
+> "git+https://github.com/jgravelle/jcodemunch-mcp.git", "jcodemunch-mcp"]`. A
+> pinned-wheel config example is shown later in this guide. Revert to the bare
+> name once PyPI access is restored.
+
 ## Install
 
 ```bash

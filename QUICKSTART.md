@@ -21,6 +21,16 @@ Get from zero to 95% token savings in one command.
 
 ---
 
+> **PyPI review in progress:** plain `pip install jcodemunch-mcp` /
+> `uvx jcodemunch-mcp` won't resolve while the package is under PyPI admin
+> review ([#308](https://github.com/jgravelle/jcodemunch-mcp/issues/308)).
+> Wherever a command below uses the bare name, substitute the GitHub-release
+> wheel or `git+https` install from the [top of this page](#one-click-installs)
+> (e.g. `pip install "git+https://github.com/jgravelle/jcodemunch-mcp.git"`, or in
+> MCP-client config `"command": "uvx", "args": ["--from",
+> "git+https://github.com/jgravelle/jcodemunch-mcp.git", "jcodemunch-mcp"]`).
+> Every other step is unchanged.
+
 ## The fast way (recommended)
 
 ```bash
