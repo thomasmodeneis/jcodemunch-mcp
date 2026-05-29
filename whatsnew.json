@@ -1,23 +1,23 @@
 {
-  "current": "1.108.24",
+  "current": "1.108.26",
   "entries": [
+    {
+      "version": "1.108.26",
+      "date": "2026-05-29",
+      "title": "get_file_outline batch mode dropped all symbols",
+      "summary": "- `get_file_outline` in **batch mode** (`file_paths=[...]`) returned empty outlines for every file \u2014 models saw \"the outline came back empty\" and either gave up or burned tokens re-querying (issue #319, reported by @MariusAdrian88, corroborated by @ImJustWeed). The bug was confined to the MUNCH `fo1` encoder:"
+    },
+    {
+      "version": "1.108.25",
+      "date": "2026-05-26",
+      "title": "secret-file detection: basename + secret-store dirs",
+      "summary": "- `is_secret_file()` no longer matches `SECRET_PATTERNS` against the full file path \u2014 the broad `*secret*` glob run as a path substring caused any directory whose name merely contains `secret` (e.g. a `services/secrets-manager/` microservice) to drop its entire subtree from the index. Matching is now"
+    },
     {
       "version": "1.108.24",
       "date": "2026-05-26",
       "title": "check_edit_safe edit-safety preflight",
       "summary": "New tool `check_edit_safe`: the edit-safety companion to `check_delete_safe`. Where delete-safety asks \"who breaks if this disappears,\" edit-safety asks \"what's my regression risk if I modify it, and what must I preserve.\" It fuses signature impact (external/cross-repo importers that depend on the current"
-    },
-    {
-      "version": "1.108.23",
-      "date": "2026-05-24",
-      "title": "Astro (.astro) language support",
-      "summary": "Adds full parsing support for `.astro` files (Astro v6), bringing the language count to 74. Mixed-language components (TypeScript frontmatter, HTML template, `<script>`/`<style>` blocks) follow the existing Razor recursive-delegation strategy. PR #311 by @gokhanozdemir."
-    },
-    {
-      "version": "1.108.22",
-      "date": "2026-05-22",
-      "title": "keyring credentials, metadata-only cache, init --minimal, docstring opt-out, git-SHA verification, sigstore release signing",
-      "summary": "Six additive enterprise-hardening items in one release. All purely additive; existing user-facing behavior unchanged across every change."
     }
   ]
 }

@@ -315,7 +315,7 @@ Antigravity's `agy` CLI inherits Gemini-CLI's config shape. Edit
       "command": "uvx",
       "args": [
         "--from",
-        "https://github.com/jgravelle/jcodemunch-mcp/releases/download/v1.108.25/jcodemunch_mcp-1.108.25-py3-none-any.whl",
+        "https://github.com/jgravelle/jcodemunch-mcp/releases/download/v1.108.26/jcodemunch_mcp-1.108.26-py3-none-any.whl",
         "jcodemunch-mcp"
       ],
       "env": {
@@ -333,7 +333,7 @@ On first `/mcp` load inside `agy`, the CLI caches each tool schema at
 `"permissions": { "allow": [ "mcp(jcodemunch/*)" ] }`. Restart `agy` after
 editing the config.
 
-The `https://github.com/.../v1.108.25/...whl` URL is the temporary
+The `https://github.com/.../v1.108.26/...whl` URL is the temporary
 PyPI-outage workaround (see the banner at the top of README.md).
 Once PyPI access is restored, swap the args back to `["jcodemunch-mcp"]`.
 
