@@ -4,6 +4,8 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.108.27] - 2026-05-30 - Windows UNC share-child indexing
+
 ### Fixed
 
 - Windows UNC share child paths are no longer rejected by the broad-root guard in
