@@ -431,6 +431,8 @@ claude mcp add -s user jcodemunch "$(which jcodemunch-mcp)"
 claude mcp add -s user jcodemunch uvx jcodemunch-mcp
 ```
 
+> **`'uvx' is not recognized` (Windows / Cursor / any client)?** `uvx` ships with [uv](https://docs.astral.sh/uv/). Install it with `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`, then **fully restart your editor** so it picks up the new PATH. To skip uv entirely: `python -m pip install` the package and launch with `command: "python"`, `args: ["-m", "jcodemunch_mcp"]` instead.
+
 If `/mcp` reports `failed` with no reason, run `claude --mcp-debug` or
 check `%USERPROFILE%\AppData\Roaming\Claude\logs\mcp*.log` — the `/mcp`
 summary hides the actual error.

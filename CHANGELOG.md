@@ -4,6 +4,28 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows UNC share child paths are no longer rejected by the broad-root guard in
+  `index_folder()` (issue #321, fix #322 by @JayceeB1). `pathlib` stores a UNC
+  share root like `\\server\share\` as a single anchor component, so
+  `\\server\share\repo` had only two `Path.parts` and tripped the "fewer than 3
+  path components" safety check meant to catch shallow roots like `C:\Users`. A
+  new `_path_safety_part_count()` helper counts a UNC anchor as server + share, so
+  `\\server\share\repo` is treated as logical depth 3 (allowed) while
+  `\\server\share` stays at depth 2 (still rejected). Local-drive behavior
+  (`C:\repo`) is unchanged, and the gate is `os.name == "nt"` so POSIX paths are
+  untouched. Both guard sites (the hard reject and the container-shallow warning)
+  route through the helper. Windows-gated regression tests in
+  `tests/test_tools.py::TestWindowsUNCPathSafety`.
+
+### Documentation
+
+- README install section now tells Windows / Cursor users what to do when `'uvx'
+  is not recognized` (issue #320): install uv via the Astral one-liner and restart
+  the editor, or skip uvx entirely with `python -m pip install` and a
+  `python -m jcodemunch_mcp` launch. Version-agnostic, no wheel-pin.
+
 ## [1.108.26] - 2026-05-29 - get_file_outline batch mode dropped all symbols
 
 ### Fixed
