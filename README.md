@@ -731,6 +731,8 @@ AI provider priority in auto-detect mode: Anthropic → Gemini → OpenAI-compat
 
 `allow_remote_summarizer` only affects OpenAI-compatible HTTP endpoints. When `false`, jcodemunch accepts only localhost-style endpoints such as Ollama or LM Studio on `127.0.0.1` and rejects remote hosts like `api.minimax.io`. When a remote endpoint is rejected, AI summarization falls back to docstrings or signatures instead of sending source code to that provider. Set `allow_remote_summarizer: true` in `config.jsonc` if you intentionally want to use a hosted OpenAI-compatible provider such as MiniMax or GLM-5.
 
+`openai_extra_body` (config key, or `JCODEMUNCH_OPENAI_EXTRA_BODY` env var as a JSON object) is merged into every OpenAI-compatible `/chat/completions` and `/responses` summarizer request. Use it for provider knobs the standard payload doesn't expose — most commonly to turn off a local **thinking model's** reasoning so the output budget isn't spent on reasoning tokens (which silently degrades summaries to generic signatures). For llama.cpp / Qwen: `JCODEMUNCH_OPENAI_EXTRA_BODY='{"chat_template_kwargs":{"enable_thinking":false}}'`. When a summarization run produces mostly generic fallbacks despite successful responses, jcodemunch now logs a degradation warning pointing at this setting (issue #323).
+
 ---
 
 ## When does it help?

@@ -392,6 +392,7 @@ DEFAULTS = {
     "summarizer_concurrency": 4,
     "summarizer_max_failures": 3,
     "allow_remote_summarizer": False,
+    "openai_extra_body": {},
     "path_map": "",
     "cross_repo_default": False,
     "discovery_hint": True,
@@ -479,6 +480,7 @@ CONFIG_TYPES = {
     "summarizer_concurrency": int,
     "summarizer_max_failures": int,
     "allow_remote_summarizer": bool,
+    "openai_extra_body": dict,
     "path_map": str,
     "cross_repo_default": bool,
     "discovery_hint": bool,
@@ -1796,6 +1798,16 @@ def generate_template() -> str:
   //   Consecutive batch failures before the AI summarizer gives up and
   //   falls back to signature summaries for remaining symbols.
   //   Set 0 to disable the circuit breaker (never stop retrying).
+  // "openai_extra_body": {{}},
+  //   Extra JSON merged into every OpenAI-compatible /chat/completions (and
+  //   /responses) summarizer request. Use it to pass provider-specific knobs
+  //   the standard payload doesn't expose. Most common case: disabling a
+  //   local thinking model's reasoning so the output budget isn't spent on
+  //   reasoning tokens (which silently degrades summaries to generic
+  //   signatures). For llama.cpp / Qwen:
+  //     "openai_extra_body": {{"chat_template_kwargs": {{"enable_thinking": false}}}}
+  //   Also settable via the JCODEMUNCH_OPENAI_EXTRA_BODY env var (JSON object);
+  //   config keys win per-key when both are set. See issue #323.
 
   // === Session-Aware Routing ===
   // "negative_evidence_threshold": 0.5,

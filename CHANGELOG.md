@@ -4,6 +4,37 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.108.28] - 2026-06-05 - Thinking-model summary degradation: warning + configurable OpenAI extra body
+
+### Added
+
+- `openai_extra_body` config key (and `JCODEMUNCH_OPENAI_EXTRA_BODY` env var, a
+  JSON object) is merged into every OpenAI-compatible `/chat/completions` and
+  `/responses` summarizer request (issue #323, reported by @ggppdk). Lets callers
+  pass provider-specific knobs the standard payload doesn't expose — the motivating
+  case is disabling a local thinking model's reasoning so the output budget isn't
+  consumed by reasoning tokens. For llama.cpp / Qwen:
+  `JCODEMUNCH_OPENAI_EXTRA_BODY='{"chat_template_kwargs":{"enable_thinking":false}}'`.
+  The config key is project-overridable via `.jcodemunch.jsonc`; when both the env
+  var and config set the same top-level key, the config value wins.
+
+### Changed
+
+- The summarizer now reports **silent degradation**. Previously, a thinking model
+  that spent its whole output budget on reasoning returned `200 OK` with no usable
+  summary text — no exception fired, the circuit breaker never tripped, and every
+  symbol quietly fell back to a generic signature while the run looked successful.
+  A new run-level check counts symbols that fell back **despite** a successful
+  response; when that fraction crosses 50%, jcodemunch logs a warning naming the
+  likely cause and the remedy (disable thinking via `JCODEMUNCH_OPENAI_EXTRA_BODY`
+  or raise `OPENAI_MAX_TOKENS`). The remedy hint is provider-aware (#323).
+
+### Internal
+
+- Factored the duplicated "assign summary or signature-fallback" loop out of all
+  three provider summarizers into `BaseSummarizer._apply_summaries()`, which also
+  drives the new degradation counters. New tests in `tests/test_summarizer.py`.
+
 ## [1.108.27] - 2026-05-30 - Windows UNC share-child indexing
 
 ### Fixed

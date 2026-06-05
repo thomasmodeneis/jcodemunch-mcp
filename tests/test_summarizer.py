@@ -908,6 +908,168 @@ def test_get_model_name_returns_value_when_set():
         assert get_model_name() == "my-custom-model"
 
 
+# ---------------------------------------------------------------------------
+# Tests for openai_extra_body / JCODEMUNCH_OPENAI_EXTRA_BODY (#323)
+# ---------------------------------------------------------------------------
+
+
+def _one_symbol(name="multiply", sig="def multiply(a: int, b: int) -> int:"):
+    return Symbol(
+        id=f"test::{name}",
+        file="test.py",
+        name=name,
+        qualified_name=name,
+        kind="function",
+        language="python",
+        signature=sig,
+    )
+
+
+def test_openai_extra_body_from_env_merged_into_chat_payload():
+    """JCODEMUNCH_OPENAI_EXTRA_BODY is merged into the /chat/completions payload."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "choices": [{"message": {"content": "1. Multiplies two integers together."}}]
+    }
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_response
+
+    with patch.dict(
+        "os.environ",
+        {
+            "OPENAI_API_BASE": "http://localhost:11434/v1",
+            "JCODEMUNCH_OPENAI_EXTRA_BODY": '{"chat_template_kwargs":{"enable_thinking":false}}',
+        },
+        clear=True,
+    ), patch.object(OpenAIBatchSummarizer, "_init_client"):
+        summarizer = OpenAIBatchSummarizer()
+        summarizer.client = mock_client
+
+    summarizer.summarize_batch([_one_symbol()])
+
+    payload = mock_client.post.call_args[1]["json"]
+    assert payload["chat_template_kwargs"] == {"enable_thinking": False}
+    # Standard payload keys are preserved.
+    assert payload["messages"][0]["content"].startswith("Summarize each code symbol")
+
+
+def test_openai_extra_body_from_config_merged_into_responses_payload():
+    """openai_extra_body config is merged into the /responses payload too."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "output": [{"content": [{"type": "output_text", "text": "1. Does a thing."}]}]
+    }
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_response
+
+    def fake_get(k, d=None, **kwargs):
+        if k == "openai_extra_body":
+            return {"reasoning": {"effort": "low"}}
+        return d
+
+    with patch.dict(
+        "os.environ",
+        {"OPENAI_API_BASE": "http://localhost:11434/v1", "OPENAI_WIRE_API": "responses"},
+        clear=True,
+    ), patch("jcodemunch_mcp.summarizer.batch_summarize._config.get", side_effect=fake_get):
+        with patch.object(OpenAIBatchSummarizer, "_init_client"):
+            summarizer = OpenAIBatchSummarizer()
+        summarizer.client = mock_client
+
+    summarizer.summarize_batch([_one_symbol()])
+
+    payload = mock_client.post.call_args[1]["json"]
+    assert payload["reasoning"] == {"effort": "low"}
+    assert payload["input"].startswith("Summarize each code symbol")
+
+
+def test_openai_extra_body_config_wins_over_env_per_key():
+    """When both env and config set the same key, the config value wins."""
+    def fake_get(k, d=None, **kwargs):
+        if k == "openai_extra_body":
+            return {"chat_template_kwargs": {"enable_thinking": True}}
+        return d
+
+    with patch.dict(
+        "os.environ",
+        {"JCODEMUNCH_OPENAI_EXTRA_BODY": '{"chat_template_kwargs":{"enable_thinking":false},"foo":1}'},
+        clear=True,
+    ), patch("jcodemunch_mcp.summarizer.batch_summarize._config.get", side_effect=fake_get):
+        from jcodemunch_mcp.summarizer.batch_summarize import _resolve_extra_body
+
+        resolved = _resolve_extra_body()
+
+    assert resolved == {"chat_template_kwargs": {"enable_thinking": True}, "foo": 1}
+
+
+def test_openai_extra_body_invalid_json_ignored(caplog):
+    """A malformed JCODEMUNCH_OPENAI_EXTRA_BODY is ignored, not fatal."""
+    with patch.dict(
+        "os.environ", {"JCODEMUNCH_OPENAI_EXTRA_BODY": "{not json"}, clear=True
+    ), patch(
+        "jcodemunch_mcp.summarizer.batch_summarize._config.get",
+        side_effect=lambda k, d=None, **kwargs: d,
+    ):
+        from jcodemunch_mcp.summarizer.batch_summarize import _resolve_extra_body
+
+        with caplog.at_level("WARNING"):
+            resolved = _resolve_extra_body()
+
+    assert resolved == {}
+    assert "not valid JSON" in caplog.text
+
+
+def test_degradation_warning_fires_on_silent_fallback(caplog):
+    """A successful response with no usable summaries triggers a degradation warning."""
+    # 200 OK, but the model returned only reasoning prose — no numbered summaries.
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "choices": [{"message": {"content": "<think>reasoning reasoning</think>"}}]
+    }
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_response
+
+    with patch.dict(
+        "os.environ", {"OPENAI_API_BASE": "http://localhost:11434/v1"}, clear=True
+    ), patch.object(OpenAIBatchSummarizer, "_init_client"):
+        summarizer = OpenAIBatchSummarizer()
+        summarizer.client = mock_client
+
+    symbols = [_one_symbol(name=f"f{i}", sig=f"def f{i}():") for i in range(4)]
+    with caplog.at_level("WARNING", logger="jcodemunch_mcp.summarizer.batch_summarize"):
+        summarizer.summarize_batch(symbols)
+
+    # Every symbol fell back to its signature ...
+    assert [s.summary for s in symbols] == [f"def f{i}():" for i in range(4)]
+    # ... and the run reported the silent degradation with the remedy hint.
+    assert "fell back to generic signatures despite successful responses" in caplog.text
+    assert "JCODEMUNCH_OPENAI_EXTRA_BODY" in caplog.text
+
+
+def test_no_degradation_warning_when_summaries_usable(caplog):
+    """Good responses do not trigger the degradation warning."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "choices": [{"message": {"content": "1. Does thing one.\n2. Does thing two."}}]
+    }
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_response
+
+    with patch.dict(
+        "os.environ", {"OPENAI_API_BASE": "http://localhost:11434/v1"}, clear=True
+    ), patch.object(OpenAIBatchSummarizer, "_init_client"):
+        summarizer = OpenAIBatchSummarizer()
+        summarizer.client = mock_client
+
+    symbols = [_one_symbol(name="a"), _one_symbol(name="b")]
+    with caplog.at_level("WARNING", logger="jcodemunch_mcp.summarizer.batch_summarize"):
+        summarizer.summarize_batch(symbols)
+
+    assert symbols[0].summary == "Does thing one."
+    assert symbols[1].summary == "Does thing two."
+    assert "fell back to generic signatures" not in caplog.text
+
+
 def test_get_model_name_strips_whitespace():
     """get_model_name() strips surrounding whitespace from the model value."""
     with patch(

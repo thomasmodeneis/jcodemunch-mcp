@@ -1,5 +1,6 @@
 """Three-tier summarization: docstring > AI provider > signature fallback."""
 
+import json
 import logging
 import os
 import threading
@@ -24,6 +25,12 @@ _AUTO_DETECT_ORDER = [
 ]
 _VALID_PROVIDERS = {"anthropic", "gemini", "openai", "minimax", "glm", "openrouter", "none"}
 
+# When a summarization run finishes and at least this fraction of graded
+# symbols fell back to generic signatures DESPITE successful responses,
+# emit a degradation warning (#323 — thinking models burning the output
+# budget on reasoning tokens return 200 OK with no usable summary text).
+_DEGRADED_FALLBACK_WARN_RATIO = 0.5
+
 
 def _is_localhost_url(url: str) -> bool:
     """Return True if url points to a loopback address."""
@@ -32,6 +39,46 @@ def _is_localhost_url(url: str) -> bool:
         return parsed.hostname in _LOCALHOST_HOSTS
     except Exception:
         return False
+
+
+def _resolve_extra_body(repo: Optional[str] = None) -> dict:
+    """Resolve the optional OpenAI-compatible extra request body (#323).
+
+    Merges the ``openai_extra_body`` config key (project-overridable via
+    ``.jcodemunch.jsonc``) over the ``JCODEMUNCH_OPENAI_EXTRA_BODY`` env var
+    (a JSON object); config keys win per top-level key. Returns {} when
+    neither is set or either fails to parse.
+
+    Primary use: disabling thinking on a local reasoning model so the output
+    budget isn't spent on reasoning tokens, e.g.
+    ``JCODEMUNCH_OPENAI_EXTRA_BODY='{"chat_template_kwargs":{"enable_thinking":false}}'``
+    for llama.cpp / Qwen.
+    """
+    merged: dict = {}
+
+    env_raw = os.environ.get("JCODEMUNCH_OPENAI_EXTRA_BODY")
+    if env_raw:
+        try:
+            parsed = json.loads(env_raw)
+        except (ValueError, json.JSONDecodeError) as e:
+            logger.warning(
+                "JCODEMUNCH_OPENAI_EXTRA_BODY is not valid JSON; ignoring: %s", e
+            )
+        else:
+            if isinstance(parsed, dict):
+                merged.update(parsed)
+            else:
+                logger.warning(
+                    "JCODEMUNCH_OPENAI_EXTRA_BODY must be a JSON object; ignoring"
+                )
+
+    cfg = _config.get("openai_extra_body", None, repo=repo)
+    if isinstance(cfg, dict):
+        merged.update(cfg)
+    elif cfg:
+        logger.warning("openai_extra_body config must be a JSON object; ignoring")
+
+    return merged
 
 
 def extract_summary_from_docstring(docstring: str) -> str:
@@ -90,9 +137,64 @@ class BaseSummarizer:
     repo: Optional[str] = None
     _consecutive_failures: int = field(default=0, init=False, repr=False)
     _circuit_broken: bool = field(default=False, init=False, repr=False)
+    _ai_summary_count: int = field(default=0, init=False, repr=False)
+    _post_response_fallbacks: int = field(default=0, init=False, repr=False)
     _failure_lock: threading.Lock = field(
         default_factory=threading.Lock, init=False, repr=False
     )
+
+    def _apply_summaries(self, batch: list[Symbol], summaries: list[str]) -> None:
+        """Assign parsed summaries to symbols; signature-fallback the blanks.
+
+        Tracks how many symbols got a real AI summary vs. fell back to a
+        generic signature DESPITE a successful response, so summarize_batch
+        can report silent degradation at the end of the run (#323). A thinking
+        model that spends its whole output budget on reasoning returns 200 OK
+        with empty content — no exception fires, so the circuit breaker never
+        sees it and the run looks successful while producing useless summaries.
+        """
+        ai = 0
+        fallback = 0
+        for sym, summary in zip(batch, summaries):
+            if summary:
+                sym.summary = summary
+                ai += 1
+            else:
+                sym.summary = signature_fallback(sym)
+                fallback += 1
+        with self._failure_lock:
+            self._ai_summary_count += ai
+            self._post_response_fallbacks += fallback
+
+    def _degradation_hint(self) -> str:
+        """Provider-specific remedy appended to the degradation warning (#323)."""
+        return (
+            "If the model emits reasoning/thinking tokens, they may be consuming "
+            "the output budget; raise the token budget or disable thinking."
+        )
+
+    def _warn_if_degraded(self) -> None:
+        """Warn when successful responses still yielded mostly generic summaries.
+
+        Distinct from the circuit breaker (which counts HTTP/exception
+        failures): this catches the silent case where responses return 200 OK
+        but carry no usable summary text — typically a thinking/reasoning model
+        spending its entire output budget on reasoning tokens (#323).
+        """
+        with self._failure_lock:
+            ai = self._ai_summary_count
+            fallback = self._post_response_fallbacks
+        graded = ai + fallback
+        if fallback == 0 or graded == 0:
+            return
+        ratio = fallback / graded
+        if ratio >= _DEGRADED_FALLBACK_WARN_RATIO:
+            logger.warning(
+                "AI summarizer produced usable summaries for only %d/%d symbols; "
+                "%d (%d%%) fell back to generic signatures despite successful "
+                "responses. %s",
+                ai, graded, fallback, round(ratio * 100), self._degradation_hint(),
+            )
 
     def _record_success(self) -> None:
         """Reset consecutive failure counter on a successful batch."""
@@ -173,6 +275,7 @@ class BaseSummarizer:
                         )
 
         logger.info("AI summarization complete: %d symbols processed", total)
+        self._warn_if_degraded()
         return symbols
 
     def _run_batch(self, batch: list[Symbol]) -> None:
@@ -302,12 +405,7 @@ class BatchSummarizer(BaseSummarizer):
             )
 
             summaries = self._parse_response(response.content[0].text, len(batch))
-
-            for sym, summary in zip(batch, summaries):
-                if summary:
-                    sym.summary = summary
-                else:
-                    sym.summary = signature_fallback(sym)
+            self._apply_summaries(batch, summaries)
 
             self._record_success()
 
@@ -358,12 +456,7 @@ class GeminiBatchSummarizer(BaseSummarizer):
         try:
             response = self.client.generate_content(prompt)
             summaries = self._parse_response(response.text, len(batch))
-
-            for sym, summary in zip(batch, summaries):
-                if summary:
-                    sym.summary = summary
-                else:
-                    sym.summary = signature_fallback(sym)
+            self._apply_summaries(batch, summaries)
 
             self._record_success()
 
@@ -389,6 +482,7 @@ class OpenAIBatchSummarizer(BaseSummarizer):
 
     def __post_init__(self):
         self.client = None
+        self.extra_body = {}
         self.wire_api = (
             os.environ.get("OPENAI_WIRE_API", "chat").strip().lower() or "chat"
         )
@@ -414,6 +508,7 @@ class OpenAIBatchSummarizer(BaseSummarizer):
             self.max_tokens_per_batch = int(
                 os.environ.get("OPENAI_MAX_TOKENS", str(self.max_tokens_per_batch))
             )
+            self.extra_body = _resolve_extra_body(self.repo)
             self._init_client()
 
     @property
@@ -484,28 +579,51 @@ class OpenAIBatchSummarizer(BaseSummarizer):
                     )
 
         logger.info("AI summarization complete: %d symbols processed", total)
+        self._warn_if_degraded()
 
         return symbols
 
+    def _degradation_hint(self) -> str:
+        """OpenAI-compatible remedy for the degradation warning (#323)."""
+        return (
+            "If you're using a thinking/reasoning model, the output budget is "
+            "likely spent on reasoning tokens. Disable thinking (e.g. set "
+            "JCODEMUNCH_OPENAI_EXTRA_BODY="
+            "'{\"chat_template_kwargs\":{\"enable_thinking\":false}}') "
+            "or raise OPENAI_MAX_TOKENS."
+        )
+
     def _request_spec(self, prompt: str) -> tuple[str, dict]:
-        """Build request path and payload for the configured wire API."""
+        """Build request path and payload for the configured wire API.
+
+        Merges ``self.extra_body`` (from openai_extra_body config /
+        JCODEMUNCH_OPENAI_EXTRA_BODY) into the payload so callers can pass
+        provider-specific knobs such as disabling a thinking model's
+        reasoning (#323).
+        """
         if self.wire_api == "responses":
-            return "/responses", {
+            payload = {
                 "model": self.model,
                 "input": prompt,
                 "max_output_tokens": self.max_tokens_per_batch,
                 "temperature": 0.0,
             }
+            if self.extra_body:
+                payload.update(self.extra_body)
+            return "/responses", payload
 
         if self.wire_api != "chat":
             raise ValueError(f"Unsupported OPENAI_WIRE_API: {self.wire_api}")
 
-        return "/chat/completions", {
+        payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": self.max_tokens_per_batch,
             "temperature": 0.0,
         }
+        if self.extra_body:
+            payload.update(self.extra_body)
+        return "/chat/completions", payload
 
     def _extract_response_text(self, data: dict) -> str:
         """Extract response text for the configured wire API."""
@@ -542,12 +660,7 @@ class OpenAIBatchSummarizer(BaseSummarizer):
             data = response.json()
             text = self._extract_response_text(data)
             summaries = self._parse_response(text, len(batch))
-
-            for sym, summary in zip(batch, summaries):
-                if summary:
-                    sym.summary = summary
-                else:
-                    sym.summary = signature_fallback(sym)
+            self._apply_summaries(batch, summaries)
 
             self._record_success()
 
