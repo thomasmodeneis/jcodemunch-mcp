@@ -6376,6 +6376,11 @@ def main(argv: Optional[list[str]] = None):
         action="store_true",
         help="Add missing keys from the current template to an existing config.jsonc, preserving user values",
     )
+    config_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the effective configuration as structured JSON (key/type/value/default/source) for tooling",
+    )
 
     # --- claude-md ---
     claude_md_parser = subparsers.add_parser(
@@ -7058,6 +7063,10 @@ def main(argv: Optional[list[str]] = None):
             logger.debug("credential env resolution skipped", exc_info=True)
 
     if args.command == "config":
+        if getattr(args, "json", False):
+            from . import config as _cfg
+            print(json.dumps(_cfg.config_report(repo=str(Path.cwd())), indent=2))
+            return
         _run_config(
             check=getattr(args, "check", False),
             init=getattr(args, "init", False),

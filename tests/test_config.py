@@ -2188,3 +2188,28 @@ class TestConfigInit:
         assert "Refusing to overwrite" in captured.out
 
         assert json.loads(config_path.read_text()) == {"existing": True}
+
+
+def test_config_report_shape_and_source_attribution(tmp_path, monkeypatch):
+    """config_report() emits one structured entry per known key, attributing
+    each value to default / global / project."""
+    from jcodemunch_mcp import config as cfg
+
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "idx"))
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / ".jcodemunch.jsonc").write_text('{"staleness_days": 3}', encoding="utf-8")
+
+    report = cfg.config_report(repo=str(proj))
+    assert isinstance(report, list) and report
+    assert all({"key", "type", "value", "default", "source"} <= e.keys() for e in report)
+
+    by_key = {e["key"]: e for e in report}
+    # Project override is attributed to the project layer with the merged value.
+    assert by_key["staleness_days"]["source"] == "project"
+    assert by_key["staleness_days"]["value"] == 3
+    # An untouched key stays default.
+    assert by_key["max_results"]["source"] == "default"
+    # Types are labeled, not raw Python types.
+    assert by_key["staleness_days"]["type"] == "int"
+    assert by_key["server_output"]["type"] == "string"

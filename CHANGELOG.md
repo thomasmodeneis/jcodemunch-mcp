@@ -4,6 +4,20 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.108.34] - 2026-06-07 - `config --json` structured, source-attributed config export
+
+### Added
+
+- `config --json` emits the effective configuration as a structured array —
+  one entry per known key with `key`, `type` (bool/int/float/string/list/dict),
+  `value`, `default`, and `source` (default / global / project). Source
+  attribution mirrors the human `config` output: a key is `project` if the
+  repo's `.jcodemunch.jsonc` sets it, `global` if the global `config.jsonc` does,
+  else `default`. Backed by a new reusable `config.config_report(repo=None)`.
+  Machine-readable counterpart to `config` for tooling — CI, dashboards, and the
+  jMunch Console's config panel (auto-generates toggles + source badges from
+  this). Regression test in `tests/test_config.py`.
+
 ## [1.108.33] - 2026-06-07 - Claude Code CLI integration works on Windows / recognizes any launcher
 
 ### Fixed

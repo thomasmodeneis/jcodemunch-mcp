@@ -863,6 +863,62 @@ def get(key: str, default: Any = None, repo: str | None = None) -> Any:
     return _GLOBAL_CONFIG.get(key, default)
 
 
+def _type_label(t: Any) -> str:
+    """Map a CONFIG_TYPES entry (a type or tuple of types) to a short label."""
+    if isinstance(t, tuple):
+        t = next((x for x in t if x is not type(None)), t[0])
+    return {
+        bool: "bool", int: "int", float: "float",
+        str: "string", list: "list", dict: "dict",
+    }.get(t, "string")
+
+
+def _raw_jsonc_keys(path: Path) -> set[str]:
+    """Keys a JSONC config file actually sets (for source attribution)."""
+    try:
+        if path.is_file():
+            import json
+            return set(json.loads(_strip_jsonc(path.read_text(encoding="utf-8-sig"))).keys())
+    except (OSError, ValueError):
+        pass
+    return set()
+
+
+def config_report(repo: str | None = None) -> list[dict[str, Any]]:
+    """Structured effective configuration: one entry per known key with its
+    value, default, type, and source (default / global / project).
+
+    Machine-readable counterpart to the human `config` output — for the Console,
+    CI, and dashboards. Source attribution mirrors `config`'s display: a key is
+    "project" if the repo's .jcodemunch.jsonc sets it, else "global" if the
+    global config.jsonc sets it, else "default".
+    """
+    load_config()
+    storage_path = os.environ.get("CODE_INDEX_PATH", str(Path.home() / ".code-index"))
+    global_keys = _raw_jsonc_keys(Path(storage_path) / "config.jsonc")
+    project_keys: set[str] = set()
+    if repo:
+        load_project_config(repo)
+        project_keys = _raw_jsonc_keys(Path(repo) / ".jcodemunch.jsonc")
+
+    report: list[dict[str, Any]] = []
+    for key, default in DEFAULTS.items():
+        if repo and key in project_keys:
+            source = "project"
+        elif key in global_keys:
+            source = "global"
+        else:
+            source = "default"
+        report.append({
+            "key": key,
+            "type": _type_label(CONFIG_TYPES.get(key)),
+            "value": get(key, default, repo=repo),
+            "default": default,
+            "source": source,
+        })
+    return report
+
+
 def _content_hash(content: str) -> str:
     """Compute SHA-256 hash of content (first 12 hex chars)."""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()[:12]
