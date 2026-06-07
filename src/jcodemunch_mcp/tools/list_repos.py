@@ -57,6 +57,7 @@ def repos_report(storage_path: Optional[str] = None) -> list[dict]:
         report.append({
             "repo_id": r.get("repo", ""),
             "display_name": r.get("display_name") or r.get("repo", ""),
+            "source_root": r.get("source_root", ""),
             "file_count": r.get("file_count", 0),
             "symbol_count": r.get("symbol_count", 0),
             "languages": r.get("languages", {}) or {},

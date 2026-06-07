@@ -19,9 +19,10 @@ def test_repos_report_shape(tmp_path):
     assert isinstance(report, list) and report
     entry = report[0]
     assert {
-        "repo_id", "display_name", "file_count", "symbol_count",
+        "repo_id", "display_name", "source_root", "file_count", "symbol_count",
         "languages", "indexed_at", "freshness", "watcher_state", "lock_holder",
     } <= entry.keys()
+    assert entry["source_root"]  # path is needed by the Console launcher
     assert entry["symbol_count"] >= 1
     assert entry["file_count"] >= 1
     assert isinstance(entry["languages"], dict)

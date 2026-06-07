@@ -4,6 +4,17 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.108.37] - 2026-06-07 - `repos_report` includes source_root
+
+### Added
+
+- `repos_report()` (and `list-repos --json`) now include each repo's
+  `source_root` filesystem path. `list_repos` already exposed it; it just wasn't
+  forwarded into the cockpit report. Enables path-aware consumers — e.g. the
+  jMunch Console launcher, which resolves a repo's working directory server-side
+  rather than trusting a client-supplied path. Test updated in
+  `tests/test_list_repos.py`.
+
 ## [1.108.36] - 2026-06-07 - `list-repos --json` cockpit view (counts + freshness + watcher state)
 
 ### Added
