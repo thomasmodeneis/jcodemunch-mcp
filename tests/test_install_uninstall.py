@@ -270,6 +270,44 @@ def test_install_status_shape():
     assert "copilot" in report["hooks"]
 
 
+def test_install_status_recognizes_custom_claude_launcher(monkeypatch):
+    """Claude Code detection is launcher-agnostic and resolves the CLI via
+    which() — a custom `jmunch-mcp --config jcodemunch.toml` registration in
+    `claude mcp list` counts as configured (regression: bare ["claude"] raised
+    FileNotFoundError on Windows and silently false-negatived)."""
+    from jcodemunch_mcp.cli import init
+
+    monkeypatch.setattr(init.shutil, "which", lambda name: "C:/fake/claude.CMD" if name == "claude" else None)
+
+    class _Result:
+        returncode = 0
+        stdout = "jcodemunch: jmunch-mcp --config x/jcodemunch.toml - Connected\n"
+        stderr = ""
+
+    monkeypatch.setattr(init.subprocess, "run", lambda *a, **k: _Result())
+    report = install_status()
+    cc = next(c for c in report["clients"] if c["name"] == "Claude Code")
+    assert cc["configured"] is True
+
+
+def test_install_status_graceful_when_claude_cli_absent(monkeypatch):
+    """No claude CLI -> no false positive. Claude Code is either dropped from
+    the client list or listed as not-configured; never configured=True."""
+    from jcodemunch_mcp.cli import init
+
+    monkeypatch.setattr(init.shutil, "which", lambda name: None)
+
+    class _Result:
+        returncode = 0
+        stdout = "jcodemunch: anything - Connected\n"
+        stderr = ""
+
+    monkeypatch.setattr(init.subprocess, "run", lambda *a, **k: _Result())
+    report = install_status()
+    cc = next((c for c in report["clients"] if c["name"] == "Claude Code"), None)
+    assert cc is None or cc["configured"] is False
+
+
 def test_print_status_runs_without_error(capsys):
     print_status({"clients": [], "policies": {}, "hooks": {
         "claude_settings": {"path": "/tmp/x", "events_with_jcm_rules": []},

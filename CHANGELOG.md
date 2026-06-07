@@ -4,6 +4,24 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.108.33] - 2026-06-07 - Claude Code CLI integration works on Windows / recognizes any launcher
+
+### Fixed
+
+- `install-status` reported Claude Code as not-configured on Windows even when
+  jcodemunch was registered and connected. The CLI checks shelled out to a bare
+  `["claude", ...]`, but the npm `claude` wrapper is `claude.CMD` / `.ps1` with
+  no bare `.exe`, so `subprocess` raised `FileNotFoundError` and the check
+  silently fell through to `configured=False` — `claude mcp list` never ran. The
+  same broken invocation was in `install`/`uninstall` (`claude mcp add` /
+  `remove`), so registering Claude Code via the CLI also no-op'd on Windows.
+  Added a shared `_claude_cli_exe()` resolver (`shutil.which`, which honors
+  PATHEXT and finds the shim); all three call sites use it. The detection itself
+  was already launcher-agnostic — it matches the server name in `claude mcp
+  list` output — so once the command actually runs it correctly recognizes
+  custom launchers (e.g. a `jmunch-mcp --config jcodemunch.toml` multiplexer),
+  venv paths, or `uvx`. 2 regression tests in `tests/test_install_uninstall.py`.
+
 ## [1.108.32] - 2026-06-06 - Share file reads across call-graph BFS traversals
 
 ### Changed

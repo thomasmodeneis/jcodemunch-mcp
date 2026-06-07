@@ -297,13 +297,28 @@ def _patch_mcp_config(path: Path, *, backup: bool = True, dry_run: bool = False)
     return f"  added jcodemunch to {path}"
 
 
+def _claude_cli_exe() -> Optional[str]:
+    """Resolve the `claude` executable, or None if unavailable.
+
+    On Windows the npm wrapper is `claude.CMD` / `claude.ps1` with no bare
+    `.exe`, so a plain ``["claude", ...]`` subprocess call raises
+    FileNotFoundError. ``shutil.which`` honors PATHEXT and finds the shim, so
+    every Claude Code CLI integration (status detection, add, remove) must go
+    through it rather than invoking ``"claude"`` directly.
+    """
+    return shutil.which("claude")
+
+
 def _configure_claude_code(*, dry_run: bool = False) -> str:
     """Run `claude mcp add` for Claude Code CLI."""
     if dry_run:
         return "  would run: claude mcp add jcodemunch uvx jcodemunch-mcp"
+    claude = _claude_cli_exe()
+    if not claude:
+        return "  claude CLI not found — skipped"
     try:
         result = subprocess.run(
-            ["claude", "mcp", "add", "jcodemunch", "uvx", "jcodemunch-mcp"],
+            [claude, "mcp", "add", "jcodemunch", "uvx", "jcodemunch-mcp"],
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode == 0:
@@ -1299,9 +1314,12 @@ def _unconfigure_claude_code(*, dry_run: bool) -> str:
     """Run `claude mcp remove jcodemunch`."""
     if dry_run:
         return "  would run: claude mcp remove jcodemunch"
+    claude = _claude_cli_exe()
+    if not claude:
+        return "  claude CLI not found -- skipped"
     try:
         result = subprocess.run(
-            ["claude", "mcp", "remove", "jcodemunch"],
+            [claude, "mcp", "remove", "jcodemunch"],
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode == 0:
@@ -1627,17 +1645,24 @@ def install_status() -> dict[str, Any]:
             data = _read_json(client.config_path)
             entry["configured"] = _has_jcodemunch_entry(data)
         elif client.method == "cli":
-            try:
-                result = subprocess.run(
-                    ["claude", "mcp", "list"],
-                    capture_output=True, text=True, timeout=10,
-                )
-                entry["configured"] = (
-                    result.returncode == 0
-                    and "jcodemunch" in (result.stdout or "")
-                )
-            except (FileNotFoundError, subprocess.TimeoutExpired):
+            claude = _claude_cli_exe()
+            if not claude:
                 entry["configured"] = False
+            else:
+                try:
+                    result = subprocess.run(
+                        [claude, "mcp", "list"],
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    # Launcher-agnostic: matches the server name in `mcp list`
+                    # output regardless of how it's launched (uvx jcodemunch-mcp,
+                    # the jmunch-mcp multiplexer, a venv path, ...).
+                    entry["configured"] = (
+                        result.returncode == 0
+                        and "jcodemunch" in (result.stdout or "")
+                    )
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    entry["configured"] = False
         report["clients"].append(entry)
 
     # File-based policies
