@@ -4,6 +4,20 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.108.43] - 2026-06-08 - Org-rollup gate requires a multi-seat tier (Studio+)
+
+### Changed
+
+- The org-rollup license gate now requires a **multi-seat tier** — `studio` or
+  `platform` (`ORG_TIERS` in `org/license.py`). org-rollup is a team feature, so
+  a valid but single-seat **Builder** license no longer unlocks it; it's treated
+  like an unlicensed org (full 14-day grace window), then blocked with an
+  *upgrade to Studio or Platform* message rather than a generic "get a license."
+  The real tier is surfaced on the gate result so the CLI/Console can show
+  "Builder — upgrade needed." Tier strings match what `validate.php` returns
+  (lowercased). 9 tests in `tests/test_org_license.py` (Builder-excluded +
+  Studio/Platform-licensed cases added).
+
 ## [1.108.42] - 2026-06-08 - Org-rollup license gate (team SKU billing)
 
 ### Added

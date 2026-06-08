@@ -33,14 +33,34 @@ def test_mask_key():
     assert lic.mask_key("") == ""
 
 
-def test_valid_key_is_licensed(monkeypatch):
+@pytest.mark.parametrize("tier", ["studio", "platform"])
+def test_multiseat_tier_is_licensed(monkeypatch, tier):
     monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", "VALIDKEY0001")
-    _server(monkeypatch, {"valid": True, "tier": "team", "error": None})
+    _server(monkeypatch, {"valid": True, "tier": tier, "error": None})
     gate = lic.check_gate()
     assert gate["allowed"] is True
     assert gate["mode"] == "licensed"
-    assert gate["tier"] == "team"
+    assert gate["tier"] == tier
     assert gate["key_masked"] == "VALI…0001"
+
+
+def test_builder_tier_does_not_unlock(monkeypatch):
+    # A valid single-seat Builder license is NOT entitled to org-rollup.
+    monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", "BUILDERKEY01")
+    _server(monkeypatch, {"valid": True, "tier": "builder", "error": None})
+    # Within grace: allowed, but flagged as a tier-upgrade case (real tier shown).
+    gate = lic.check_gate()
+    assert gate["allowed"] is True and gate["mode"] == "grace"
+    assert "upgrade" in gate["reason"].lower()
+    assert gate["tier"] == "builder"
+    # After grace: blocked, with a Studio/Platform upsell (not a generic "get a license").
+    state = lic._load_state()
+    state["grace_started_at"] = time.time() - (lic.GRACE_SECONDS + 10)
+    lic._save_state(state)
+    gate2 = lic.check_gate()
+    assert gate2["allowed"] is False and gate2["mode"] == "blocked"
+    assert "studio or platform" in gate2["reason"].lower()
+    assert gate2["tier"] == "builder"
 
 
 def test_no_key_starts_grace(monkeypatch):
@@ -84,7 +104,7 @@ def test_sticky_offline_keeps_confirmed_key(monkeypatch):
     key = "STICKYKEY001"
     monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", key)
     # First check confirms valid and caches it.
-    _server(monkeypatch, {"valid": True, "tier": "team", "error": None})
+    _server(monkeypatch, {"valid": True, "tier": "studio", "error": None})
     assert lic.check_gate()["mode"] == "licensed"
     # Force a re-check window, then make the server unreachable.
     state = lic._load_state()
@@ -98,8 +118,8 @@ def test_sticky_offline_keeps_confirmed_key(monkeypatch):
 def test_revocation_blocks_even_with_old_grace(monkeypatch):
     key = "REVOKED00001"
     monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", key)
-    # Was valid and cached.
-    _server(monkeypatch, {"valid": True, "tier": "team", "error": None})
+    # Was valid (Studio) and cached.
+    _server(monkeypatch, {"valid": True, "tier": "studio", "error": None})
     lic.check_gate()
     # Server now explicitly revokes; force a recheck.
     state = lic._load_state()
