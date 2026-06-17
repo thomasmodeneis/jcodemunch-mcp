@@ -321,7 +321,9 @@ def load_live_journal(
             return None
         try:
             ts = datetime.fromisoformat(updated.replace("Z", "+00:00"))
-            if datetime.now(timezone.utc) - ts > timedelta(minutes=max_age_minutes):
+            # `>=` so a 0-minute budget always rejects (a just-written journal
+            # whose age rounds to exactly 0 on a fast clock is still "too old").
+            if datetime.now(timezone.utc) - ts >= timedelta(minutes=max_age_minutes):
                 return None
         except Exception:
             return None

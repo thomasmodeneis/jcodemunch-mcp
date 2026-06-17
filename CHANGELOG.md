@@ -41,6 +41,16 @@ All notable changes to jcodemunch-mcp are documented here.
 10 tests in `tests/test_v1_108_58.py` (Django/Express/Flask resolution,
 render→view capture, unresolved-route reporting, off-path parity).
 
+### Fixed
+
+- **`load_live_journal` 0-minute-budget boundary (flaky on Windows CI).** The
+  freshness check used `age > timedelta(minutes=max_age_minutes)`, so a journal
+  written "now" and read back within the same clock tick had `age == 0` and
+  `0 > 0` was false — it loaded instead of being treated as stale, failing
+  `test_v1_108_57.py::test_load_respects_max_age` intermittently on fast Windows
+  runners. Changed to `>=` so a 0-minute budget always rejects, matching the
+  documented semantics. No effect on normal budgets.
+
 ## [1.108.57] - 2026-06-17 - PreCompact hook reads a persisted live session journal (#334)
 
 ### Fixed
