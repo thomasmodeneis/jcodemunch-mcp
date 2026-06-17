@@ -4959,6 +4959,21 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     except KeyError as e:
         _call_ok = False
+        # A KeyError raised while extracting arguments in THIS dispatcher frame is
+        # a genuine missing caller argument. A KeyError raised deeper — inside a
+        # tool implementation (e.g. a dict-shape bug) — must NOT masquerade as a
+        # schema/argument problem (#331). Distinguish by the originating frame.
+        _tb = e.__traceback__
+        while _tb is not None and _tb.tb_next is not None:
+            _tb = _tb.tb_next
+        _origin = _tb.tb_frame.f_code.co_filename if _tb is not None else ""
+        if _origin and os.path.basename(_origin) != os.path.basename(__file__):
+            logger.error("call_tool %s raised an internal KeyError", name, exc_info=True)
+            payload = {
+                "error": f"Internal error processing {name}",
+                "summary": f"KeyError: {e}",
+            }
+            return [TextContent(type="text", text=json.dumps(payload, separators=(',', ':')))]
         return [TextContent(type="text", text=json.dumps({"error": f"Missing required argument: {e}. Check the tool schema for correct parameter names."}, separators=(',', ':')))]
     except Exception as exc:
         _call_ok = False

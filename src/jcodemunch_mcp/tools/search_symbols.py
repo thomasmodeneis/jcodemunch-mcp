@@ -623,9 +623,13 @@ def search_symbols(
         )
         _cached = _result_cache_get(_cache_key)
         if _cached is not None:
-            # Cache hit — return immediately with fresh timing
-            _cached["_meta"]["timing_ms"] = round((time.perf_counter() - start) * 1000, 1)
-            _cached["_meta"]["cache_hit"] = True
+            # Cache hit — return immediately with fresh timing.
+            # Synthesize _meta if the cached result lacks it (#331): a cached
+            # entry without _meta must not raise KeyError here, because the
+            # dispatcher renders any KeyError as a bogus "missing argument".
+            _hit_meta = _cached.setdefault("_meta", {})
+            _hit_meta["timing_ms"] = round((time.perf_counter() - start) * 1000, 1)
+            _hit_meta["cache_hit"] = True
             return _cached
 
     # Semantic: validate provider before doing any expensive work

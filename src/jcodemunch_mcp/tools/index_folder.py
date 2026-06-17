@@ -607,15 +607,58 @@ def _scan_package_json_forced_paths(folder_path: Path) -> set[str]:
     return forced
 
 
+def _refresh_git_head_if_advanced(store, owner, name, folder_path, stored_head):
+    """On a no-change incremental run, advance the index's stored ``git_head``
+    if live HEAD has moved (#330).
+
+    ``FreshnessProbe`` flags every result ``stale_index`` when the stored index
+    SHA differs from live HEAD. A commit that changes only non-indexed files (or
+    otherwise leaves indexed content unchanged) advances HEAD while the
+    no-change return paths in ``index_folder`` never updated the stored SHA, so
+    retrieval kept reporting otherwise-current symbols as stale even right after
+    a successful "No changes detected" run.
+
+    Writes a metadata-only delta (empty changed/new/deleted) that just refreshes
+    ``git_head`` + ``indexed_at``. Best-effort: any failure is swallowed so a
+    no-change run never hard-fails on the freshness-metadata refresh. Returns the
+    new head when written, else ``""``.
+    """
+    try:
+        current_head = _get_git_head(folder_path) or ""
+    except Exception:
+        logger.debug("git_head probe failed for %s/%s", owner, name, exc_info=True)
+        return ""
+    if not current_head or current_head == (stored_head or ""):
+        return ""
+    try:
+        store.incremental_save(
+            owner=owner, name=name,
+            changed_files=[], new_files=[], deleted_files=[],
+            new_symbols=[], raw_files={},
+            git_head=current_head,
+        )
+        return current_head
+    except Exception:
+        logger.debug("git_head metadata refresh failed for %s/%s", owner, name, exc_info=True)
+        return ""
+
+
 def resolve_explicit_paths(
     walk_root: Path,
     paths: list,
     max_files: Optional[int],
     max_size: int = DEFAULT_MAX_FILE_SIZE,
     follow_symlinks: bool = False,
-) -> tuple[list[Path], list[str], dict[str, int]]:
+) -> tuple[list[Path], list[str], dict[str, int], list[str]]:
     """Materialise a caller-supplied list of paths into the (files, warnings,
-    skip_counts) shape that the standard indexing pipeline expects.
+    skip_counts, requested_rels) shape that the standard indexing pipeline
+    expects.
+
+    ``requested_rels`` is the list of root-relative entries the caller asked
+    for — including directories and entries that no longer exist on disk. The
+    incremental path uses it to scope deletions to exactly the listed subset so
+    a subset refresh never prunes unlisted indexed files, while still removing a
+    listed file that was deleted on disk (#333).
 
     Each entry can be absolute or relative to ``walk_root``. Files are added
     when they live under ``walk_root`` and have a known language. Directories
@@ -632,6 +675,7 @@ def resolve_explicit_paths(
     files: list[Path] = []
     warnings: list[str] = []
     skip_counts: dict[str, int] = {}
+    requested_rels: list[str] = []
     seen: set = set()
 
     cap = max_files if max_files is not None else 10_000_000
@@ -652,10 +696,14 @@ def resolve_explicit_paths(
             continue
 
         try:
-            p.relative_to(walk_root)
+            _rel = p.relative_to(walk_root).as_posix()
         except ValueError:
             warnings.append(f"Skipped path outside walk root: {raw!r}")
             continue
+        # Record the requested root-relative entry (even when it no longer
+        # exists on disk) so the incremental path can scope deletions to exactly
+        # the listed subset and still prune a listed file that was deleted (#333).
+        requested_rels.append(_rel)
 
         if not p.exists():
             warnings.append(f"Skipped non-existent path: {raw!r}")
@@ -710,7 +758,7 @@ def resolve_explicit_paths(
             seen.add(pr)
             files.append(p)
 
-    return files[:cap], warnings, skip_counts
+    return files[:cap], warnings, skip_counts, requested_rels
 
 
 def discover_local_files(
@@ -1298,6 +1346,10 @@ def index_folder(
                         rel_path_map_fast[rel_path] = abs_path
 
                 if not changed_files and not new_files and not deleted_files:
+                    _refresh_git_head_if_advanced(
+                        store, owner, repo_name, folder_path,
+                        existing_index.git_head if existing_index else None,
+                    )
                     return {
                         "success": True,
                         "message": "No changes detected",
@@ -1359,13 +1411,21 @@ def index_folder(
                 # If only mtimes changed (no content changes, no new, no deleted),
                 # update mtimes in DB and return early — no parsing needed.
                 if not changed_files and not new_files and not deleted_files:
-                    if mtime_only_updates:
-                        # Update mtimes directly via incremental_save with empty deltas
+                    _new_head = _get_git_head(folder_path) or ""
+                    _head_advanced = bool(_new_head) and _new_head != (
+                        existing_index.git_head if existing_index else ""
+                    )
+                    if mtime_only_updates or _head_advanced:
+                        # Update mtimes directly via incremental_save with empty
+                        # deltas; also refresh git_head when it advanced so
+                        # FreshnessProbe does not keep flagging unchanged symbols
+                        # stale_index after a no-op source-index run (#330).
                         store.incremental_save(
                             owner=owner, name=repo_name,
                             changed_files=[], new_files=[], deleted_files=[],
                             new_symbols=[], raw_files={},
                             file_mtimes=mtime_only_updates,
+                            git_head=_new_head if _head_advanced else "",
                         )
                     return {
                         "success": True,
@@ -1502,8 +1562,9 @@ def index_folder(
         # walk entirely and materialise the file list from those explicit
         # entries. Validation matches the walk path (outside-root, traversal,
         # symlink-escape, oversize, unsupported-extension all warn-and-skip).
+        requested_rels: Optional[list[str]] = None
         if paths is not None:
-            source_files, discover_warnings, skip_counts = resolve_explicit_paths(
+            source_files, discover_warnings, skip_counts, requested_rels = resolve_explicit_paths(
                 walk_root,
                 list(paths),
                 max_files=max_files,
@@ -1540,10 +1601,22 @@ def index_folder(
             warnings.append(gitignore_warning)
 
         if not source_files:
-            result = {"success": False, "error": "No source files found"}
-            if warnings:
-                result["warnings"] = warnings
-            return result
+            # A subset refresh (paths=[...]) whose listed files were all deleted
+            # on disk legitimately yields zero source files. Let it fall through
+            # to the incremental path so those files get pruned, instead of
+            # erroring out and leaving stale symbols behind (#333). Every other
+            # empty-discovery case is still an error.
+            _deletion_only_subset = (
+                paths is not None
+                and bool(requested_rels)
+                and incremental
+                and store.has_index(owner, repo_name)
+            )
+            if not _deletion_only_subset:
+                result = {"success": False, "error": "No source files found"}
+                if warnings:
+                    result["warnings"] = warnings
+                return result
 
         # Discover context providers (dbt, terraform, etc.).
         # Project-overridable (#301): per-repo feature toggle for context providers.
@@ -1749,7 +1822,33 @@ def index_folder(
                 )
             )
 
+            # Subset refresh (paths=[...]): detect_changes_with_mtimes diffs the
+            # supplied subset against the ENTIRE stored index, so every unlisted
+            # indexed file lands in `deleted`. Rescope `deleted` to only the files
+            # the caller actually listed — a subset refresh must never prune
+            # unlisted files, while still removing a listed file that was deleted
+            # on disk. Listing the root ('.' / '') preserves full-corpus diff
+            # semantics. Applies to both the normal and branch-delta saves below
+            # (they share `deleted`). (#333)
+            if requested_rels is not None:
+                old_files = (
+                    set((existing_index.file_hashes or {}).keys())
+                    if existing_index is not None else set()
+                )
+                if any(req in ("", ".") for req in requested_rels):
+                    covered = old_files
+                else:
+                    covered = {
+                        fp for fp in old_files
+                        if any(fp == req or fp.startswith(req + "/") for req in requested_rels)
+                    }
+                deleted = sorted(covered - set(file_mtimes))
+
             if not changed and not new and not deleted:
+                _refresh_git_head_if_advanced(
+                    store, owner, repo_name, folder_path,
+                    existing_index.git_head if existing_index else None,
+                )
                 return {
                     "success": True,
                     "message": "No changes detected",

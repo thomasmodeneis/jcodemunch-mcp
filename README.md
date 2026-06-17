@@ -110,9 +110,9 @@ is a byte the agent doesn't pay to read.
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.56](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.56)** (2026-06-17) — no-change freshness refresh, cache-hit hardening, subset-scoped pruning (#330, #331, #333)
 - **[v1.108.55](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.55)** (2026-06-12) — turn-budget reset, honest budget packing, fast search_text rejection (#327, #328, #329)
 - **[v1.108.54](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.54)** (2026-06-11) — list-repos / delete-index honor CODE_INDEX_PATH
-- **[v1.108.53](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.53)** (2026-06-11) — recency window on weight tuning
 <!-- WHATSNEW:END -->
 
 ![License](https://img.shields.io/badge/license-dual--use-blue)

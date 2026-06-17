@@ -4,6 +4,55 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.108.56] - 2026-06-17 - no-change freshness refresh, cache-hit hardening, subset-scoped pruning (#330, #331, #333)
+
+### Fixed
+
+- **#330 — `index_folder` no-change runs now advance the stored `git_head`.**
+  `FreshnessProbe` flags every result `stale_index` when the stored index SHA
+  differs from live HEAD. A commit that changed only non-indexed files (or
+  otherwise left indexed content unchanged) advanced HEAD while all three
+  no-change return paths in `index_folder` returned `"No changes detected"`
+  without ever refreshing the stored SHA — so retrieval kept reporting
+  otherwise-current symbols as stale right after a successful incremental run.
+  A new `_refresh_git_head_if_advanced()` helper writes a metadata-only delta
+  (empty changed/new/deleted) that advances `git_head` + `indexed_at` when live
+  HEAD has moved; it is wired into all three no-change paths (the watcher
+  fast-path pre-read return, the mtime-only return — which now also passes
+  `git_head` into its existing `incremental_save` — and the plain-incremental
+  return). Best-effort: any failure is swallowed so a no-change run never
+  hard-fails on the freshness-metadata refresh.
+
+- **#331 — `search_symbols` cache hits no longer raise a `KeyError` that masquerades
+  as a missing argument.** `_result_cache_get` explicitly tolerates a cached
+  result without a `_meta` envelope, but the cache-hit return path assumed
+  `_meta` existed when stamping `timing_ms`/`cache_hit`, so a legacy or restored
+  cache entry lacking `_meta` raised `KeyError("_meta")`. Worse, the server
+  dispatcher rendered *any* `KeyError` — including ones raised inside tool code —
+  as `"Missing required argument: ..."`, turning an internal dict-shape bug into
+  a bogus caller-schema error. Two-layer fix: cache hits now `setdefault` the
+  `_meta` envelope, and the dispatcher's `KeyError` handler inspects the
+  originating frame — only a `KeyError` raised in its own argument-extraction
+  frame is reported as a missing argument; a `KeyError` raised deeper (inside a
+  tool) is logged and returned as `"Internal error processing <tool>"` with the
+  key in the summary.
+
+- **#333 — `index_folder(paths=[...])` no longer prunes unlisted indexed files.**
+  A subset refresh diffed the supplied `paths` against the *entire* stored
+  index, so `detect_changes_with_mtimes` flagged every unlisted indexed file as
+  deleted and `incremental_save` removed its symbols — a scoped refresh could
+  silently shrink the whole index. `resolve_explicit_paths` now also returns
+  `requested_rels` (the root-relative entries the caller listed, including
+  directories and paths deleted from disk), and the incremental path rescopes
+  `deleted` to only files covered by that subset. Listing the root (`.` / `""`)
+  preserves full-corpus diff semantics; a listed file that was deleted on disk
+  is still pruned (the `No source files found` guard now lets a deletion-only
+  subset through). The rescope sits on the shared `deleted` list, so the
+  branch-delta save path is covered too. Mirrors the jdocmunch #31 subset-diff
+  contract on the code side.
+
+- 9 tests in `tests/test_v1_108_56.py`.
+
 ## [1.108.55] - 2026-06-12 - turn-budget reset, honest budget packing, fast search_text rejection (#327, #328, #329)
 
 ### Fixed
