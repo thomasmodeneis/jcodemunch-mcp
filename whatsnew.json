@@ -1,23 +1,23 @@
 {
-  "current": "1.108.57",
+  "current": "1.108.60",
   "entries": [
     {
-      "version": "1.108.57",
-      "date": "2026-06-17",
-      "title": "PreCompact hook reads a persisted live session journal (#334)",
-      "summary": "- **#334 \u2014 the PreCompact CLI hook can now see real session state.** The `hook-precompact` command runs as a separate process from the MCP server, so it imported `get_session_snapshot()`, read a fresh process-local `SessionJournal`, and emitted a healthy-looking but empty"
+      "version": "1.108.60",
+      "date": "2026-06-18",
+      "title": "`config --check` distinguishes sandbox-limited storage probes",
+      "summary": "- **`config --check` no longer reports a sandbox-limited index-storage probe as a confirmed failure** (issue #335). The storage check creates the index root, writes a `.jcm_probe` file, and unlinks it. Previously *every* exception was treated as a confirmed `storage` issue and exited `1` \u2014 so inside a restricted/sandboxed agent"
     },
     {
-      "version": "1.108.56",
+      "version": "1.108.59",
       "date": "2026-06-17",
-      "title": "no-change freshness refresh, cache-hit hardening, subset-scoped pruning (#330, #331, #333)",
-      "summary": "- **#330 \u2014 `index_folder` no-change runs now advance the stored `git_head`.** `FreshnessProbe` flags every result `stale_index` when the stored index SHA differs from live HEAD. A commit that changed only non-indexed files (or otherwise left indexed content unchanged) advanced HEAD while all three"
+      "title": "Decision-context surfacing in impact analysis",
+      "summary": "- **Read-only decision-context surfacing on `get_blast_radius` and `get_impact_preview`** (new opt-in `include_decisions`, default `false`). Impact analysis tells you *what* breaks; this adds *why the code is the way it is*. New `tools/decision_context.py` (`resolve_decision_context`) mines the git history of"
     },
     {
-      "version": "1.108.55",
-      "date": "2026-06-12",
-      "title": "turn-budget reset, honest budget packing, fast search_text rejection (#327, #328, #329)",
-      "summary": "- **#327 \u2014 Turn budget now resets in every reader, not only post-dispatch.** The idle-gap reset lived solely inside `record_output`, which the server calls after a tool's result is computed. Readers that run during tool execution \u2014 `plan_turn`'s budget advisor via `percent_used()`,"
+      "version": "1.108.58",
+      "date": "2026-06-17",
+      "title": "Framework flow-edge resolver for get_signal_chains",
+      "summary": "- **Language-agnostic framework flow-edge resolver** (`tools/flow_edges.py`, `resolve_flow_edges`). The AST call graph is structurally blind to the two most common ways a web framework wires a request to the code that handles it, and `get_signal_chains` now recovers both:"
     }
   ]
 }

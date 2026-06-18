@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import atexit
+import errno
 import functools
 import hmac
 import json
@@ -6129,6 +6130,11 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
     if check:
         section("Checks")
         issues: list[str] = []
+        # Sandbox/host-visibility-limited probes that could NOT be confirmed
+        # either way from inside this process. Distinct from `issues`: a
+        # restricted agent shell that cannot prove host writability must not be
+        # reported as a confirmed configuration failure (issue #335).
+        host_confirmation: list[str] = []
 
         # Validate config.jsonc
         config_issues = _cfg.validate_config(str(config_path))
@@ -6160,6 +6166,21 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
             probe.write_text("ok")
             probe.unlink()
             print(f"  {green(CHECK)} index storage writable: {storage}")
+        except PermissionError as e:
+            # In a sandboxed/restricted agent shell, EPERM/EACCES means "this
+            # process cannot prove host writability", NOT "the host index
+            # storage is actually unwritable". Don't present an indeterminate
+            # sandbox probe as a confirmed failure (issue #335) — flag it for
+            # host confirmation and tell the operator to rerun unsandboxed.
+            if e.errno in {errno.EPERM, errno.EACCES}:
+                print(
+                    f"  {yellow(WARN)} index storage writability needs host confirmation: "
+                    f"{storage} — {e}"
+                )
+                host_confirmation.append("storage")
+            else:
+                print(f"  {red(CROSS)} index storage not writable: {storage} — {e}")
+                issues.append("storage")
         except Exception as e:
             print(f"  {red(CROSS)} index storage not writable: {storage} — {e}")
             issues.append("storage")
@@ -6286,6 +6307,18 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
         if issues:
             print(yellow(f"  {len(issues)} issue(s) found — see above."))
             sys.exit(1)
+        elif host_confirmation:
+            # No confirmed failures, but at least one probe could only be
+            # answered by the host (sandbox-limited). Exit 0 so an agent client
+            # does not mistake a healthy install for a broken one, but tell the
+            # operator to rerun outside the sandbox before acting on it (#335).
+            print(yellow(
+                f"  {len(host_confirmation)} check(s) need host confirmation — see above."
+            ))
+            print(dim(
+                "  Rerun outside a sandbox or restricted shell before repairing"
+                " or reporting drift."
+            ))
         else:
             print(green("  All checks passed."))
     print()

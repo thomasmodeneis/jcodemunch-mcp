@@ -4,6 +4,32 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.108.60] - 2026-06-18 - `config --check` distinguishes sandbox-limited storage probes
+
+### Fixed
+
+- **`config --check` no longer reports a sandbox-limited index-storage probe as a
+  confirmed failure** (issue #335). The storage check creates the index root, writes
+  a `.jcm_probe` file, and unlinks it. Previously *every* exception was treated as a
+  confirmed `storage` issue and exited `1` — so inside a restricted/sandboxed agent
+  shell that can read the index but cannot write to the index root, a perfectly
+  healthy install looked broken (`✗ index storage not writable … Operation not
+  permitted`), which can lead an agent to "repair" or report a false configuration
+  failure.
+  - A `PermissionError` whose `errno` is `EPERM`/`EACCES` is now classified as
+    **host-confirmation-needed** rather than a confirmed failure: it prints a
+    `⚠ index storage writability needs host confirmation` row and a hint to rerun
+    outside a sandbox or restricted shell before repairing or reporting drift.
+  - When only host-confirmation items are present (no confirmed issues), the command
+    **exits `0`** so an agent client does not mistake a healthy install for a broken
+    one. Confirmed non-writable roots (e.g. a read-only filesystem, `EROFS`) still
+    print `✗ index storage not writable` and exit `1`.
+  - 4 regression tests in `tests/test_config.py`
+    (`TestServerConfigCheckStorageProbe`): writable path passes/exits 0; confirmed
+    non-writable still fails; mocked `PermissionError(EPERM)` reports host
+    confirmation, not failure; and the output instructs rerunning outside the
+    sandbox.
+
 ## [1.108.59] - 2026-06-17 - Decision-context surfacing in impact analysis
 
 ### Added

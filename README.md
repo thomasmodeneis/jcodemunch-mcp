@@ -110,9 +110,9 @@ is a byte the agent doesn't pay to read.
 <!-- WHATSNEW:START -->
 #### What's new
 
-- **[v1.108.57](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.57)** (2026-06-17) — PreCompact hook reads a persisted live session journal (#334)
-- **[v1.108.56](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.56)** (2026-06-17) — no-change freshness refresh, cache-hit hardening, subset-scoped pruning (#330, #331, #333)
-- **[v1.108.55](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.55)** (2026-06-12) — turn-budget reset, honest budget packing, fast search_text rejection (#327, #328, #329)
+- **[v1.108.60](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.60)** (2026-06-18) — `config --check` distinguishes sandbox-limited storage probes
+- **[v1.108.59](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.59)** (2026-06-17) — Decision-context surfacing in impact analysis
+- **[v1.108.58](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.58)** (2026-06-17) — Framework flow-edge resolver for get_signal_chains
 <!-- WHATSNEW:END -->
 
 ![License](https://img.shields.io/badge/license-dual--use-blue)

@@ -1159,6 +1159,111 @@ class TestServerConfigCheck:
             assert "parse error" not in captured.lower()
 
 
+class TestServerConfigCheckStorageProbe:
+    """Regression: issue #335 (reported by @mmashwani). `config --check`
+    treated every storage-probe exception as a confirmed `storage` failure,
+    so a sandboxed agent shell that simply cannot prove host writability
+    (EPERM/EACCES) reported a healthy install as broken and exited 1. A
+    confirmed non-writable root must still fail; a sandbox-limited probe must
+    be flagged for host confirmation and NOT exit 1.
+    """
+
+    def _setup_valid_env(self, tmpdir, monkeypatch):
+        """Valid config + isolated home so only the storage probe varies."""
+        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG
+        _GLOBAL_CONFIG.clear()
+        config_path = Path(tmpdir) / "config.jsonc"
+        config_path.write_text('{"max_folder_files": 5000}')
+        monkeypatch.setenv("CODE_INDEX_PATH", tmpdir)
+        # Isolate home so the real ~/.claude/CLAUDE.md + settings.json don't
+        # inject unrelated issues (missing CLAUDE.md only warns).
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: Path(tmpdir)))
+
+    def test_writable_storage_passes_and_exits_zero(self, capsys, monkeypatch):
+        """A normal writable storage path prints a passing storage row, exit 0."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._setup_valid_env(tmpdir, monkeypatch)
+
+            from src.jcodemunch_mcp.server import _run_config
+            _run_config(check=True)  # no SystemExit
+
+            captured = capsys.readouterr().out
+            assert "index storage writable" in captured.lower()
+            assert "host confirmation" not in captured.lower()
+
+    def test_confirmed_non_writable_storage_still_fails(self, capsys, monkeypatch):
+        """A confirmed non-writable path (non-EPERM/EACCES OSError) exits 1."""
+        import errno as _errno
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._setup_valid_env(tmpdir, monkeypatch)
+
+            orig_write_text = Path.write_text
+
+            def fake_write_text(self, *a, **k):
+                if self.name == ".jcm_probe":
+                    raise OSError(_errno.EROFS, "Read-only file system")
+                return orig_write_text(self, *a, **k)
+
+            monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+            from src.jcodemunch_mcp.server import _run_config
+            with pytest.raises(SystemExit) as exc_info:
+                _run_config(check=True)
+            assert exc_info.value.code == 1
+
+            captured = capsys.readouterr().out
+            assert "index storage not writable" in captured.lower()
+            assert "host confirmation" not in captured.lower()
+
+    def test_sandbox_eperm_is_host_confirmation_not_failure(self, capsys, monkeypatch):
+        """A mocked PermissionError(EPERM) reports a host-confirmation warning
+        rather than a confirmed storage failure, and does NOT exit 1."""
+        import errno as _errno
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._setup_valid_env(tmpdir, monkeypatch)
+
+            orig_write_text = Path.write_text
+
+            def fake_write_text(self, *a, **k):
+                if self.name == ".jcm_probe":
+                    raise PermissionError(_errno.EPERM, "Operation not permitted")
+                return orig_write_text(self, *a, **k)
+
+            monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+            from src.jcodemunch_mcp.server import _run_config
+            _run_config(check=True)  # no SystemExit
+
+            captured = capsys.readouterr().out
+            assert "host confirmation" in captured.lower()
+            # Not presented as a confirmed failure.
+            assert "index storage not writable" not in captured.lower()
+            assert "issue(s) found" not in captured.lower()
+
+    def test_sandbox_probe_tells_operator_to_rerun_outside_sandbox(self, capsys, monkeypatch):
+        """The host-confirmation output instructs rerunning outside a sandbox
+        before repairing or reporting storage drift."""
+        import errno as _errno
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._setup_valid_env(tmpdir, monkeypatch)
+
+            orig_write_text = Path.write_text
+
+            def fake_write_text(self, *a, **k):
+                if self.name == ".jcm_probe":
+                    raise PermissionError(_errno.EACCES, "Permission denied")
+                return orig_write_text(self, *a, **k)
+
+            monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+            from src.jcodemunch_mcp.server import _run_config
+            _run_config(check=True)
+
+            captured = capsys.readouterr().out.lower()
+            assert "sandbox" in captured or "restricted shell" in captured
+            assert "rerun" in captured
+
+
 class TestConfigDisplayHonorsProjectOverride:
     """Regression: jcm #300 follow-up (reported by @slazarov on issue #300
     after v1.108.14). `config --check` validated the project file but the
