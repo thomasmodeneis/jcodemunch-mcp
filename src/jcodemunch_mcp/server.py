@@ -100,6 +100,53 @@ _CANONICAL_TOOL_NAMES: tuple[str, ...] = (
     "jcodemunch_guide",
 )
 
+# Category groupings for the generated CLAUDE.md snippet (`claude-md --generate`).
+# Module-level so test_tool_registration_consistency can enumerate it: every
+# tool the builder emits must appear here AND in _CANONICAL_TOOL_NAMES, or the
+# meta-test fails listing the gap. Keeps a new tool from drifting across the
+# registration surfaces (the recurring "added the tool in 4 of 5 places" trap).
+_SNIPPET_TOOL_CATEGORIES: list[tuple[str, list[str]]] = [
+    ("Indexing", ["index_repo", "index_folder", "summarize_repo", "index_file"]),
+    ("Discovery", ["list_repos", "resolve_repo", "suggest_queries",
+                   "get_repo_outline", "get_file_tree", "get_file_outline"]),
+    ("Search & Retrieval", ["search_symbols", "get_symbol_source", "get_context_bundle",
+                             "get_file_content", "search_text", "search_columns",
+                             "get_ranked_context", "assemble_task_context"]),
+    ("Relationships", ["find_importers", "find_references", "check_references",
+                       "get_dependency_graph", "get_class_hierarchy",
+                       "get_related_symbols", "get_call_hierarchy",
+                       "find_implementations"]),
+    ("Impact & Safety", ["get_blast_radius", "check_rename_safe", "check_delete_safe",
+                          "check_edit_safe",
+                          "get_impact_preview", "get_changed_symbols",
+                          "plan_refactoring", "get_symbol_provenance",
+                          "get_pr_risk_profile"]),
+    ("Architecture", ["get_dependency_cycles", "get_coupling_metrics",
+                      "get_layer_violations", "get_extraction_candidates",
+                      "get_cross_repo_map", "get_tectonic_map",
+                      "get_signal_chains", "render_diagram",
+                      "get_project_intel", "list_workspaces",
+                      "get_group_contracts"]),
+    ("Quality & Metrics", ["get_symbol_complexity", "get_churn_rate", "get_hotspots",
+                            "get_repo_health", "diff_health_radar",
+                            "get_file_risk", "get_symbol_importance",
+                            "get_repo_map", "find_similar_symbols",
+                            "find_dead_code", "get_dead_code_v2",
+                            "get_untested_symbols", "search_ast",
+                            "winnow_symbols"]),
+    ("Diffs & Embeddings", ["get_symbol_diff", "embed_repo"]),
+    ("Session-Aware Routing", ["plan_turn", "get_session_context", "get_session_snapshot", "register_edit", "digest"]),
+    ("Utilities", ["get_session_stats", "analyze_perf", "tune_weights", "check_embedding_drift",
+                    "invalidate_cache", "test_summarizer",
+                    "audit_agent_config", "suggest_corrections", "get_watch_status"]),
+    ("Runtime Trace Ingest & Analytics", [
+        "import_runtime_signal", "get_runtime_coverage",
+        "find_hot_paths", "find_unused_paths", "get_redaction_log",
+    ]),
+    ("Runtime Tier Switching", ["set_tool_tier", "announce_model"]),
+    ("Self-Guide", ["jcodemunch_guide"]),
+]
+
 # --------------------------------------------------------------------------- #
 # Tool profiles: tiered sets for controlling context budget.                   #
 # core ⊂ standard ⊂ full.  Config key: tool_profile (default "full").         #
@@ -5969,48 +6016,8 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
             )
         # Fall through to full generation if CLAUDE.md doesn't exist yet
 
-    # Group tools by category for readability
-    categories = [
-        ("Indexing", ["index_repo", "index_folder", "summarize_repo", "index_file"]),
-        ("Discovery", ["list_repos", "resolve_repo", "suggest_queries",
-                       "get_repo_outline", "get_file_tree", "get_file_outline"]),
-        ("Search & Retrieval", ["search_symbols", "get_symbol_source", "get_context_bundle",
-                                 "get_file_content", "search_text", "search_columns",
-                                 "get_ranked_context", "assemble_task_context"]),
-        ("Relationships", ["find_importers", "find_references", "check_references",
-                           "get_dependency_graph", "get_class_hierarchy",
-                           "get_related_symbols", "get_call_hierarchy",
-                           "find_implementations"]),
-        ("Impact & Safety", ["get_blast_radius", "check_rename_safe", "check_delete_safe",
-                              "check_edit_safe",
-                              "get_impact_preview", "get_changed_symbols",
-                              "plan_refactoring", "get_symbol_provenance",
-                              "get_pr_risk_profile"]),
-        ("Architecture", ["get_dependency_cycles", "get_coupling_metrics",
-                          "get_layer_violations", "get_extraction_candidates",
-                          "get_cross_repo_map", "get_tectonic_map",
-                          "get_signal_chains", "render_diagram",
-                          "get_project_intel", "list_workspaces",
-                          "get_group_contracts"]),
-        ("Quality & Metrics", ["get_symbol_complexity", "get_churn_rate", "get_hotspots",
-                                "get_repo_health", "diff_health_radar",
-                                "get_file_risk", "get_symbol_importance",
-                                "get_repo_map", "find_similar_symbols",
-                                "find_dead_code", "get_dead_code_v2",
-                                "get_untested_symbols", "search_ast",
-                                "winnow_symbols"]),
-        ("Diffs & Embeddings", ["get_symbol_diff", "embed_repo"]),
-        ("Session-Aware Routing", ["plan_turn", "get_session_context", "get_session_snapshot", "register_edit", "digest"]),
-        ("Utilities", ["get_session_stats", "analyze_perf", "tune_weights", "check_embedding_drift",
-                        "invalidate_cache", "test_summarizer",
-                        "audit_agent_config", "suggest_corrections", "get_watch_status"]),
-        ("Runtime Trace Ingest & Analytics", [
-            "import_runtime_signal", "get_runtime_coverage",
-            "find_hot_paths", "find_unused_paths", "get_redaction_log",
-        ]),
-        ("Runtime Tier Switching", ["set_tool_tier", "announce_model"]),
-        ("Self-Guide", ["jcodemunch_guide"]),
-    ]
+    # Group tools by category for readability (single source: module constant).
+    categories = _SNIPPET_TOOL_CATEGORIES
     from . import __version__ as _ver
     lines = [
         f"## jcodemunch-mcp (v{_ver})",
