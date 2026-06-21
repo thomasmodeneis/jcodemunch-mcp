@@ -299,6 +299,8 @@ Every retrieval result now ships with three machine-readable health signals so a
 
 The `tune_weights` tool reads the persistent ranking ledger and learns per-repo retrieval weights (saved to `~/.code-index/tuning.jsonc`). `check_embedding_drift` pins a 16-string canary to detect silent provider model changes. `benchmarks/replay/` provides a CI-friendly retrieval-quality regression gate (nDCG/MRR/Recall) that every release runs against.
 
+The `suggest_corrections` tool (and the `reflect` CLI) close the loop: they mine the same ranking ledger for **retrieval regret** — where retrieval failed and the agent had to re-ask — and return a prioritized, explainable set of *suggested* fixes (a CLAUDE.md routing or glossary line as a unified-diff preview, an index-freshness hint, a stale-config finding, a dry-run weight proposal). It is read-only by design: it suggests a patch and shows you the diff; applying it is your keystroke, never the server's. Requires `perf_telemetry_enabled` (it has a ledger to read only then) and returns an honest hint when off.
+
 ### Local-first speed
 
 Indexes are stored locally for fast repeated access.

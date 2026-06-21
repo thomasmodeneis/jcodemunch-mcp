@@ -2,6 +2,36 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.68] - 2026-06-21 - Retrieval-regret loop: suggest_corrections / reflect
+
+### Added
+
+- **A read-only feedback loop that mines retrieval regret and suggests config
+  fixes.** The ranking-events telemetry ledger already fed exactly one consumer
+  (the weight tuner); it also carries a louder, unread signal — when retrieval
+  failed and the agent had to re-ask. New `suggest_corrections` MCP tool +
+  `reflect` CLI surface it:
+  - **`retrieval/regret.py`** (`analyze_regret`) extracts six regret signals
+    over the ledger — re-query churn, low confidence, thin/zero results,
+    ambiguous top, stale-at-query, and identity-miss-rescued-by-semantic
+    (vocabulary gap) — as severity-ranked clusters. Pure read; no new tables.
+  - **`suggest_corrections`** fuses those clusters with `audit_agent_config`
+    (stale-config findings) and a dry-run `WeightTuner` proposal into prioritized,
+    explainable corrections: CLAUDE.md routing/glossary lines rendered as
+    **unified-diff previews**, index-freshness hints, and the weight proposal.
+  - **`reflect` CLI** (`jcodemunch-mcp reflect [repo] [--all] [--apply-weights]
+    [--json]`) prints the same as a human report.
+  - One-line **digest** integration: "N regret cluster(s) this window; top: …".
+- **Charter: never writes a user file.** Every correction is a *suggestion* with
+  its evidence (event counts + example queries); applying a patch is the user's
+  keystroke. The only state the loop may persist is the ranking-weights sidecar
+  (`tuning.jsonc`), behind an explicit `apply_weights`/`--apply-weights`. A test
+  asserts the targeted CLAUDE.md is byte-unchanged after a run.
+- Degrades honestly when `perf_telemetry_enabled` is off (the ledger only exists
+  then): returns an explicit hint, never fabricated corrections. New tool lives
+  in the `standard` tier (alongside `tune_weights`/`analyze_perf`). Tool count
+  82 -> 83. New `tests/test_suggest_corrections.py` (12).
+
 ## [1.108.67] - 2026-06-21 - Demote the language enum under compact_schemas
 
 ### Changed

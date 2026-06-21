@@ -169,6 +169,11 @@ def compose_digest(
     dead = _compose_dead_code(owner, name, max_dead_code, storage_path)
     structured["dead_code"] = dead
 
+    # Section 4: retrieval-regret summary (only when the ledger has clusters)
+    regret = _compose_regret(f"{owner}/{name}", storage_path)
+    if regret:
+        structured["regret"] = regret
+
     briefing = _render_markdown(structured)
 
     # Persist current state so the next call computes a fresh delta.
@@ -270,6 +275,29 @@ def _compose_dead_code(
         return []
 
 
+def _compose_regret(repo: str, storage_path: Optional[str]) -> Optional[dict]:
+    """One-line retrieval-regret summary from the ranking ledger. Returns None
+    when telemetry is off or no regret clusters cross threshold (so the digest
+    line only appears when there's something to act on). Failures degrade
+    silently."""
+    try:
+        from ..retrieval.regret import analyze_regret
+        out = analyze_regret(repo, storage_path=storage_path)
+        clusters = out.get("clusters") or []
+        if not clusters:
+            return None
+        top = clusters[0]
+        return {
+            "count": len(clusters),
+            "events": out.get("events_analyzed", 0),
+            "top_signal": top.get("signal"),
+            "top_severity": top.get("severity"),
+        }
+    except Exception:
+        logger.debug("compose_regret failed", exc_info=True)
+        return None
+
+
 def _render_markdown(s: dict) -> str:
     """Render the briefing as a tight markdown digest."""
     lines: list[str] = [f"## jCodemunch digest — {s['repo']}"]
@@ -329,6 +357,14 @@ def _render_markdown(s: dict) -> str:
             sid = d.get("symbol_id") or d.get("name", "?")
             lines.append(f"- `{_truncate_symbol_id(sid)}`")
         lines.append("Verify with `check_references` before removal.")
+
+    regret = s.get("regret")
+    if regret:
+        lines.append(
+            f"\n### Retrieval regret\n{regret['count']} regret cluster(s) this window; "
+            f"top: {regret['top_signal']} ({regret['top_severity']}). "
+            f"Run `reflect` for suggested fixes."
+        )
 
     lines.append(
         "\n_Composed from get_changed_symbols + get_hotspots + find_dead_code. "

@@ -79,6 +79,7 @@ _CANONICAL_TOOL_NAMES: tuple[str, ...] = (
     # Utilities
     "get_session_stats", "get_session_context", "get_session_snapshot", "plan_turn", "register_edit", "invalidate_cache", "test_summarizer",
     "audit_agent_config", "get_watch_status", "analyze_perf", "tune_weights", "check_embedding_drift",
+    "suggest_corrections",
     # Agent stand-up briefing
     "digest",
     # Health-radar diff (PR-time diff-grade reports)
@@ -145,6 +146,7 @@ _TOOL_TIER_STANDARD: frozenset[str] = _TOOL_TIER_CORE | frozenset({
     "render_diagram", "get_project_intel", "list_workspaces",
     # Utilities
     "invalidate_cache", "get_watch_status", "analyze_perf", "tune_weights", "check_embedding_drift",
+    "suggest_corrections",
     # Agent stand-up briefing
     "digest",
     # Health-radar diff
@@ -1982,6 +1984,46 @@ def _build_tools_list() -> list[Tool]:
                     "project_path": {
                         "type": "string",
                         "description": "Project directory to scan for config files. Defaults to cwd.",
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="suggest_corrections",
+            description=(
+                "Mine the ranking telemetry ledger for retrieval regret (re-query churn, "
+                "low confidence, thin/ambiguous results, stale-at-query, vocabulary gaps) "
+                "and return a prioritized, explainable set of SUGGESTED corrections: "
+                "CLAUDE.md routing/glossary lines (as unified-diff previews), index-freshness "
+                "hints, stale-config findings, and a dry-run ranking-weight proposal. "
+                "Read-only by charter — it never writes a user file; applying a patch is your "
+                "keystroke. Requires perf_telemetry_enabled; returns an honest hint when off."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository whose retrieval ledger to analyze.",
+                    },
+                    "project_path": {
+                        "type": "string",
+                        "description": "Project directory holding the config files to target. Defaults to cwd.",
+                    },
+                    "window_days": {
+                        "type": "integer",
+                        "description": "Rolling window of ledger history to mine (default 30).",
+                        "default": 30,
+                    },
+                    "all_time": {
+                        "type": "boolean",
+                        "description": "Ignore the window and analyze the full ledger.",
+                        "default": False,
+                    },
+                    "apply_weights": {
+                        "type": "boolean",
+                        "description": "Persist the ranking-weight proposal to the tuning.jsonc sidecar (NOT user source). User files are never written regardless.",
+                        "default": False,
                     },
                 },
             },
@@ -4546,6 +4588,19 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     repo=arguments.get("repo"),
                     project_path=arguments.get("project_path"),
                     storage_path=storage_path,
+                )
+            )
+        elif name == "suggest_corrections":
+            from .tools.suggest_corrections import suggest_corrections
+            result = await asyncio.to_thread(
+                functools.partial(
+                    suggest_corrections,
+                    repo=arguments.get("repo"),
+                    project_path=arguments.get("project_path"),
+                    storage_path=storage_path,
+                    window_days=arguments.get("window_days", 30),
+                    all_time=arguments.get("all_time", False),
+                    apply_weights=arguments.get("apply_weights", False),
                 )
             )
         elif name == "get_dependency_graph":
@@ -7326,6 +7381,26 @@ def main(argv: Optional[list[str]] = None):
     receipt_parser.add_argument("--projects-root", default=None,
         help="Override Claude Code projects directory (default ~/.claude/projects).")
 
+    # --- reflect ---
+    reflect_parser = subparsers.add_parser(
+        "reflect",
+        help="Surface retrieval regret from the ranking ledger as suggested config corrections",
+    )
+    reflect_parser.add_argument("repo", nargs="?", default=".",
+        help="Repo identifier (path, owner/name, or bare display name). Defaults to '.' (cwd).")
+    reflect_parser.add_argument("--project-path", default=None,
+        help="Directory holding the config files to target. Defaults to cwd.")
+    reflect_parser.add_argument("--window-days", type=int, default=30,
+        help="Rolling ledger window to mine (default 30).")
+    reflect_parser.add_argument("--all", dest="all_time", action="store_true",
+        help="Analyze the full ledger, ignoring the window.")
+    reflect_parser.add_argument("--apply-weights", action="store_true",
+        help="Persist the ranking-weight proposal to tuning.jsonc (sidecar, not user source).")
+    reflect_parser.add_argument("--json", action="store_true",
+        help="Emit the structured payload as JSON instead of the human report.")
+    reflect_parser.add_argument("--storage-path", default=None,
+        help="Override index storage location.")
+
     # --- whatsnew ---
     whatsnew_parser = subparsers.add_parser(
         "whatsnew",
@@ -7502,7 +7577,7 @@ def main(argv: Optional[list[str]] = None):
     if any(arg in top_level_flags for arg in raw_argv):
         args = parser.parse_args(raw_argv)
     else:
-        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "health", "file-risk", "observatory", "keyring"}
+        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "health", "file-risk", "observatory", "keyring"}
         # MCP-tool-name typos: route to the right CLI verb with a friendly hint.
         # `index_repo` and `index_folder` are MCP tools, not CLI subcommands.
         _CLI_ALIASES = {
@@ -7944,6 +8019,21 @@ def main(argv: Optional[list[str]] = None):
         if args.storage_path:
             argv += ["--storage-path", args.storage_path]
         sys.exit(digest_main(argv))
+
+    if args.command == "reflect":
+        from .cli.reflect import main as reflect_main
+        argv = [args.repo, "--window-days", str(args.window_days)]
+        if args.project_path:
+            argv += ["--project-path", args.project_path]
+        if args.all_time:
+            argv += ["--all"]
+        if args.apply_weights:
+            argv += ["--apply-weights"]
+        if args.json:
+            argv += ["--json"]
+        if args.storage_path:
+            argv += ["--storage-path", args.storage_path]
+        sys.exit(reflect_main(argv))
 
     if args.command == "receipt":
         from .cli.receipt import main as receipt_main
