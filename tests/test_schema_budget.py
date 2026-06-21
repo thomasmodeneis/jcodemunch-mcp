@@ -93,3 +93,35 @@ def test_v2_success_criterion_core_compact_under_4000():
         f"v2.0.0 success criterion requires core + compact_schemas <= 4000 tokens; "
         f"current baseline is {core_compact}."
     )
+
+
+def test_compact_demotes_language_enum_keeps_capability():
+    """Under compact_schemas, the ~76-value `language` enum is demoted to a
+    plain string filter (reclaims ~200 tokens) but the param stays usable. The
+    full surface keeps the enum. Guards the core_compact-under-4000 headroom."""
+    from jcodemunch_mcp import config as config_module
+    from jcodemunch_mcp.server import _build_tools_list
+
+    cfg = config_module._GLOBAL_CONFIG  # type: ignore[attr-defined]
+    original = {k: cfg.get(k) for k in ("tool_profile", "compact_schemas")}
+    try:
+        cfg["tool_profile"] = "core"
+
+        cfg["compact_schemas"] = True
+        ss = next(t for t in _build_tools_list() if t.name == "search_symbols")
+        lang = ss.inputSchema["properties"]["language"]
+        assert "enum" not in lang, "language enum must be demoted under compact"
+        assert lang.get("type") == "string", "demoted language must remain a string filter"
+        assert lang.get("description"), "demoted language must keep its description"
+
+        cfg["compact_schemas"] = False
+        ss_full = next(t for t in _build_tools_list() if t.name == "search_symbols")
+        assert len(ss_full.inputSchema["properties"]["language"].get("enum", [])) > 10, (
+            "full surface must keep the language enum"
+        )
+    finally:
+        for k, v in original.items():
+            if v is None:
+                cfg.pop(k, None)
+            else:
+                cfg[k] = v

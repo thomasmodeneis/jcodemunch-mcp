@@ -525,6 +525,14 @@ _COMPACT_STRIP_PARAMS: dict[str, set[str]] = {
     "index_folder": {"extra_ignore_patterns", "incremental"},
 }
 
+# Params whose enum is demoted to a plain string filter under compact_schemas.
+# The `language` enum is the full LANGUAGE_REGISTRY (~76 values) — ~200 tokens
+# of mechanical names an agent already knows. Dropping the enum keeps the param
+# fully usable as a free-string filter (the tool tolerates any language string)
+# while reclaiming the tokens. Keyed by param name so every tool that exposes a
+# `language` enum (search_symbols, search_ast, ...) benefits across all tiers.
+_COMPACT_DEMOTE_ENUM_PARAMS: frozenset[str] = frozenset({"language"})
+
 # Tools eligible for Agent Selector complexity scoring
 _AGENT_SELECTOR_TOOLS = frozenset({
     "get_ranked_context", "get_context_bundle", "search_symbols",
@@ -3566,12 +3574,21 @@ def _build_tools_list() -> list[Tool]:
     # --- Compact schemas: strip rarely-used params ---------------------------
     if config_module.get("compact_schemas", False):
         for tool in tools:
+            if not isinstance(tool.inputSchema, dict):
+                continue
+            props = tool.inputSchema.get("properties")
+            if not props:
+                continue
             strip_set = _COMPACT_STRIP_PARAMS.get(tool.name)
-            if strip_set and isinstance(tool.inputSchema, dict):
-                props = tool.inputSchema.get("properties")
-                if props:
-                    for param in strip_set:
-                        props.pop(param, None)
+            if strip_set:
+                for param in strip_set:
+                    props.pop(param, None)
+            # Demote large mechanical enums to free-string filters (capability
+            # preserved; the tool accepts any string for these params).
+            for param in _COMPACT_DEMOTE_ENUM_PARAMS:
+                pschema = props.get(param)
+                if isinstance(pschema, dict) and "enum" in pschema:
+                    props[param] = {k: v for k, v in pschema.items() if k != "enum"}
 
     # Merge descriptions from config (runs after disabled_tools filter)
     _apply_description_overrides(tools)

@@ -2,6 +2,22 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.67] - 2026-06-21 - Demote the language enum under compact_schemas
+
+### Changed
+
+- **The `language` filter's ~76-value enum is demoted to a plain string under
+  `compact_schemas`**, reclaiming ~200 tokens from the smallest tool surfaces
+  while keeping the parameter fully usable (the tool already accepts any
+  language string; an unknown one simply matches nothing). The full
+  (non-compact) surface keeps the enum unchanged. This brings `core_compact`
+  back under the 4,000-token §10 success criterion (4,162 → 3,956) after recent
+  releases had pushed it over, and also trims `standard_compact`. Generalized by
+  parameter name via `_COMPACT_DEMOTE_ENUM_PARAMS`, so every tool exposing a
+  `language` enum benefits. `benchmarks/schema_baseline.json` refreshed to the
+  new honest live counts; new `test_compact_demotes_language_enum_keeps_capability`
+  pins the behavior (enum gone under compact, present in full).
+
 ## [1.108.66] - 2026-06-21 - The Counter: adaptive tool surface (order / menu / route)
 
 ### Added
