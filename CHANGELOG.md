@@ -2,6 +2,54 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.70] - 2026-06-22 - Bounded-source mode for get_symbol_source (#340)
+
+### Added
+
+- **An optional, explicitly-labeled source slice for large symbols and broad
+  batches.** `get_symbol_source` always returned the full indexed body, which is
+  the right default but fragile when a very large symbol (or a heavy `symbol_ids`
+  batch) gets clipped by the MCP client or model context *after* a successful
+  call, leaving the agent with a silently-partial implementation. Bounded mode
+  gives callers a server-side truncation contract instead:
+  - `source_start_line` / `source_end_line` — absolute file line numbers (same
+    frame as `line` / `end_line`), clamped to the symbol body;
+  - `max_source_lines` — keep at most the first N lines of the (ranged) slice;
+  - `max_source_bytes` — UTF-8-safe per-symbol byte cap;
+  - `max_total_source_bytes` — batch cap across all returned symbols, so an
+    oversized batch returns bounded entries instead of an N×per-symbol blowup;
+    oversized symbols come back **partial, never dropped**.
+- **Server-authored truncation metadata, on the slice.** When a bound shortens
+  the body, each entry carries `source_truncated`, `source_range`,
+  `source_total_range`, `source_total_lines`, `source_total_bytes`,
+  `source_truncated_reason`, and `source_is_bounded_view` — so an agent (or a
+  verified entry) can tell the returned `source` is a slice, not the full bytes.
+
+### Contract
+
+- **Default is byte-for-byte unchanged.** With no bound supplied, the response
+  and its fields are exactly as before — the bounded fields appear only when a
+  bound is requested.
+- **`verify` stays full-body.** `verify=true` continues to hash the complete
+  indexed body; a bounded entry is additionally flagged `source_is_bounded_view`
+  so the returned source is never mistaken for the verified bytes.
+- **`context_lines` cannot defeat the bound.** Combining `context_lines` with any
+  source bound is rejected, so it can never silently expand the payload past the
+  requested bound.
+- Bounded params are hidden under `compact_schemas` (still callable) to protect
+  the core_compact budget; the full surface advertises them.
+
+### Tests
+
+- `tests/test_v1_108_70.py` (19): UTF-8-safe truncation, range clamping, line /
+  byte / batch caps and reason precedence (pure), plus the integration contract
+  (default unchanged, line/range bounds + metadata, verify-still-full, batch
+  partial-not-dropped, context_lines rejection, invalid-bound rejection).
+
+The source-retrieval analogue of the `search_symbols(token_budget=...)` bounding
+from #328. Scoped to `tools/get_symbol.py` + the `server.py` schema. Reported by
+@mmashwani.
+
 ## [1.108.69] - 2026-06-21 - Durable-change delivery: get_delivery_metrics / delivery CLI
 
 ### Added

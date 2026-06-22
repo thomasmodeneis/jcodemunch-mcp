@@ -1,23 +1,23 @@
 {
-  "current": "1.108.61",
+  "current": "1.108.70",
   "entries": [
     {
-      "version": "1.108.61",
-      "date": "2026-06-18",
-      "title": "Every config key is now documented (no more \"Other\")",
-      "summary": "- **13 config keys shipped without a template section or description**, so `config --json` (and any consumer of it, including the jMunch Console's grouped config screen) emitted them under the `Other` catch-all group with an empty `description`. The keys existed in `DEFAULTS`/`CONFIG_TYPES` but were never"
+      "version": "1.108.70",
+      "date": "2026-06-22",
+      "title": "Bounded-source mode for get_symbol_source (#340)",
+      "summary": "- **An optional, explicitly-labeled source slice for large symbols and broad batches.** `get_symbol_source` always returned the full indexed body, which is the right default but fragile when a very large symbol (or a heavy `symbol_ids` batch) gets clipped by the MCP client or model context *after* a successful"
     },
     {
-      "version": "1.108.60",
-      "date": "2026-06-18",
-      "title": "`config --check` distinguishes sandbox-limited storage probes",
-      "summary": "- **`config --check` no longer reports a sandbox-limited index-storage probe as a confirmed failure** (issue #335). The storage check creates the index root, writes a `.jcm_probe` file, and unlinks it. Previously *every* exception was treated as a confirmed `storage` issue and exited `1` \u2014 so inside a restricted/sandboxed agent"
+      "version": "1.108.69",
+      "date": "2026-06-21",
+      "title": "Durable-change delivery: get_delivery_metrics / delivery CLI",
+      "summary": "- **A read-only measure of how much got *done*, not how much activity happened.** The suite shows tokens used and tokens saved (input). It had no honest output measure \u2014 the gap that lets teams reward raw volume (more commits, more tokens) to the detriment of their pocketbooks. New `get_delivery_metrics` MCP tool +"
     },
     {
-      "version": "1.108.59",
-      "date": "2026-06-17",
-      "title": "Decision-context surfacing in impact analysis",
-      "summary": "- **Read-only decision-context surfacing on `get_blast_radius` and `get_impact_preview`** (new opt-in `include_decisions`, default `false`). Impact analysis tells you *what* breaks; this adds *why the code is the way it is*. New `tools/decision_context.py` (`resolve_decision_context`) mines the git history of"
+      "version": "1.108.68",
+      "date": "2026-06-21",
+      "title": "Retrieval-regret loop: suggest_corrections / reflect",
+      "summary": "- **A read-only feedback loop that mines retrieval regret and suggests config fixes.** The ranking-events telemetry ledger already fed exactly one consumer (the weight tuner); it also carries a louder, unread signal \u2014 when retrieval failed and the agent had to re-ask. New `suggest_corrections` MCP tool +"
     }
   ]
 }

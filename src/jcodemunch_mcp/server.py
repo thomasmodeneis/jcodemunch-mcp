@@ -566,6 +566,13 @@ _COMPACT_STRIP_PARAMS: dict[str, set[str]] = {
         "fuzzy", "fuzzy_threshold", "max_edit_distance", "sort_by", "fqn",
         "decorator", "token_budget",
     },
+    # Bounded-source mode is an advanced opt-in; the tool still accepts these
+    # params under compact, they're just hidden from the schema to protect the
+    # core_compact budget (the body is always callable with them).
+    "get_symbol_source": {
+        "source_start_line", "source_end_line", "max_source_lines",
+        "max_source_bytes", "max_total_source_bytes",
+    },
     "get_context_bundle": {"budget_strategy"},
     "get_ranked_context": {"detail_level"},
     "get_blast_radius": {"cross_repo", "max_depth"},
@@ -1316,7 +1323,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="get_symbol_source",
-            description="Get full source of one symbol (symbol_id → flat object) or many (symbol_ids[] → {symbols, errors}). Supports verify, context_lines, and fqn (PHP FQN via PSR-4).",
+            description="Get full source of one symbol (symbol_id → flat object) or many (symbol_ids[] → {symbols, errors}). Supports verify, context_lines, fqn (PHP FQN via PSR-4), and an optional bounded mode that caps returned source for large symbols/batches.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1352,6 +1359,26 @@ def _build_tools_list() -> list[Tool]:
                     "fqn": {
                         "type": "string",
                         "description": "PHP fully-qualified class name (e.g. 'App\\Models\\User'). Resolves to symbol_id via PSR-4. Alternative to symbol_id."
+                    },
+                    "source_start_line": {
+                        "type": "integer",
+                        "description": "Bounded mode: absolute file line (1-based, same frame as `line`/`end_line`) to start the returned source slice; clamped to the symbol body."
+                    },
+                    "source_end_line": {
+                        "type": "integer",
+                        "description": "Bounded mode: absolute file line (1-based, inclusive) to end the returned source slice; clamped to the symbol body."
+                    },
+                    "max_source_lines": {
+                        "type": "integer",
+                        "description": "Bounded mode: keep at most the first N lines of the (ranged) slice. Sets source_truncated + metadata when it shortens the body."
+                    },
+                    "max_source_bytes": {
+                        "type": "integer",
+                        "description": "Bounded mode: UTF-8-safe per-symbol byte cap on the returned source. Verify still hashes the full body."
+                    },
+                    "max_total_source_bytes": {
+                        "type": "integer",
+                        "description": "Bounded mode (batch): cap on total returned source bytes across all symbols. Oversized symbols come back partial (source_truncated) rather than dropped, preventing an N×per-symbol blowup."
                     }
                 },
                 "required": ["repo"]
@@ -4365,6 +4392,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     context_lines=arguments.get("context_lines", 0),
                     storage_path=storage_path,
                     fqn=arguments.get("fqn"),
+                    source_start_line=arguments.get("source_start_line"),
+                    source_end_line=arguments.get("source_end_line"),
+                    max_source_lines=arguments.get("max_source_lines"),
+                    max_source_bytes=arguments.get("max_source_bytes"),
+                    max_total_source_bytes=arguments.get("max_total_source_bytes"),
                 )
             )
         elif name == "search_symbols":
