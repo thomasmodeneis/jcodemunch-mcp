@@ -64,6 +64,9 @@ def app(tmp_path, monkeypatch):
     """
     monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path))
     monkeypatch.setenv("JCODEMUNCH_RUNTIME_INGEST_ENABLED", "1")
+    # Second key of the two-key turn: a token must be set or the write endpoint
+    # fails closed (v1.108.73). The route tests exercise the happy path, so set it.
+    monkeypatch.setenv("JCODEMUNCH_HTTP_TOKEN", "test-token")
     # Reload config so the env var takes effect.
     from jcodemunch_mcp import config as cfg
     cfg.load_config()

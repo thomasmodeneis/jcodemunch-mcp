@@ -129,6 +129,41 @@ def _max_body_bytes() -> int:
         return 5_242_880
 
 
+def _http_auth_token_present() -> bool:
+    """Whether bearer auth is actually enforceable.
+
+    ``BearerAuthMiddleware`` (server.py) only checks the token *if*
+    ``JCODEMUNCH_HTTP_TOKEN`` is set; when it's unset the middleware is a no-op
+    and an enabled write endpoint would accept unauthenticated writes. We read
+    the same source the middleware reads so the fail-closed decision here agrees
+    with what the middleware would (or wouldn't) enforce.
+    """
+    return bool(os.environ.get("JCODEMUNCH_HTTP_TOKEN"))
+
+
+def _ingest_auth_error() -> Optional["JSONResponse"]:
+    """Fail closed when an ingest endpoint is enabled but no token is set.
+
+    Enabling ingest is the first key of the documented two-key turn; the bearer
+    token is the second. Without it the write endpoint would accept
+    unauthenticated writes (only a startup warning today), so we refuse (503)
+    rather than warn. Returns ``None`` when a token is set (the middleware then
+    enforces it), else the 503 response to short-circuit the handler.
+    """
+    if _http_auth_token_present():
+        return None
+    return _json(
+        {
+            "error": (
+                "ingest endpoint enabled but JCODEMUNCH_HTTP_TOKEN is not set; "
+                "refusing unauthenticated writes. Set JCODEMUNCH_HTTP_TOKEN on the "
+                "transport (the second key of the two-key turn) to enable writes."
+            )
+        },
+        status=503,
+    )
+
+
 def _resolve_repo_param(request: "Request") -> Optional[tuple[str, str]]:
     """Extract owner/name from ``X-JCM-Repo`` header or ``?repo=`` query.
 
@@ -208,6 +243,9 @@ def _shared_handler_setup(
             },
             status=503,
         )
+    auth_err = _ingest_auth_error()
+    if auth_err is not None:
+        return None, auth_err
     repo = _resolve_repo_param(request)
     if repo is None:
         return None, _json(

@@ -16,6 +16,9 @@ import jcodemunch_mcp.config as cfg  # noqa: E402
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path))
+    # Second key of the two-key turn (v1.108.73): an enabled write endpoint with
+    # no token fails closed. These tests exercise the happy path, so set it.
+    monkeypatch.setenv("JCODEMUNCH_HTTP_TOKEN", "test-token")
     app = Starlette(routes=make_org_routes())
     return TestClient(app)
 

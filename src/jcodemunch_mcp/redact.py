@@ -71,6 +71,22 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     ("github_token", re.compile(
         r"(?P<secret>gh[pousr]_[A-Za-z0-9_]{36,})"
     )),
+    # GitHub fine-grained PATs (github_pat_...). The classic gh[pousr]_ pattern
+    # above does NOT match these — different prefix shape.
+    ("github_fine_grained_pat", re.compile(
+        r"(?P<secret>github_pat_[A-Za-z0-9_]{20,})"
+    )),
+    # Anthropic API keys (sk-ant-...). Listed BEFORE the OpenAI pattern so the
+    # ant- form is labelled + redacted first; the OpenAI bare branch then can't
+    # re-scan it.
+    ("anthropic_api_key", re.compile(
+        r"(?P<secret>sk-ant-[A-Za-z0-9_-]{20,})"
+    )),
+    # OpenAI API keys: project keys (sk-proj-...) and legacy bare keys (sk-...).
+    # The bare branch forbids a hyphen so it can't swallow an sk-ant- key.
+    ("openai_api_key", re.compile(
+        r"(?P<secret>sk-(?:proj-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{20,}))"
+    )),
     # Slack tokens
     ("slack_token", re.compile(
         r"(?P<secret>xox[bpasor]-[A-Za-z0-9\-]{10,})"

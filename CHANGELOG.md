@@ -2,6 +2,34 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.73] - 2026-06-22 - Harden: HTTP ingest fails closed without a token + redaction currency
+
+### Security
+
+- **HTTP ingest write endpoints now fail closed when enabled without a token.**
+  `BearerAuthMiddleware` only enforces `JCODEMUNCH_HTTP_TOKEN` when it is set, so
+  enabling runtime/org ingest without setting a token left an unauthenticated
+  write surface guarded only by a startup warning. The documented "two-key turn"
+  (enable flag + bearer token) is now actually enforced: when an ingest endpoint
+  is enabled but no token is set, `POST /runtime/{otel,sql,stack}` and
+  `POST /org/report` return `503` and refuse the write, instead of accepting it.
+  Shared `_ingest_auth_error()` helper, wired into the runtime shared handler
+  setup and the org handler. The disabled-endpoint path is unchanged (rejects on
+  the enable check, before the auth check).
+- **Redaction now covers current token formats.** Added structural patterns for
+  GitHub fine-grained PATs (`github_pat_`, which the classic `gh[pousr]_` pattern
+  does not match), OpenAI project and legacy keys (`sk-proj-` / `sk-`), and
+  Anthropic keys (`sk-ant-`). A bare key in a stack trace or SQL log with no
+  `key=` context is now redacted at the chokepoint.
+
+### Tests
+
+- New `tests/test_v1_108_73.py` (10): enabled-without-token returns 503 on both
+  runtime and org; token present passes the auth gate; disabled path unchanged;
+  each new redaction format covered plus a benign short `sk-` fragment left
+  untouched. The runtime/org happy-path fixtures now set a token (required by the
+  fail-closed behavior).
+
 ## [1.108.72] - 2026-06-22 - resolve_repo flags relative paths over detached transports
 
 ### Changed

@@ -22,7 +22,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from .. import config as _config_mod
-from ..runtime.http_routes import _read_body, _json
+from ..runtime.http_routes import _read_body, _json, _ingest_auth_error
 from .store import record_seat_report
 
 if TYPE_CHECKING:
@@ -47,6 +47,9 @@ async def handle_org_report(request: "Request") -> "JSONResponse":
             {"error": "org ingest is disabled; set JCODEMUNCH_ORG_INGEST_ENABLED=1 on the org host"},
             status=403,
         )
+    auth_err = _ingest_auth_error()
+    if auth_err is not None:
+        return auth_err
     body, err = await _read_body(request)
     if err:
         return _json({"error": err}, status=413)
