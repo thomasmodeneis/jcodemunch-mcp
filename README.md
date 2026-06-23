@@ -29,12 +29,16 @@ of Express, FastAPI, Gin, Pydantic, Django, Flask, NestJS, Cobra, and
 this very repo: https://jgravelle.github.io/jcodemunch-observatory/
 
 <!-- mcp-name: io.github.jgravelle/jcodemunch-mcp -->
-
+ 
+ 
 ## FREE FOR PERSONAL USE
 **Use it to make money, and Uncle J. gets a taste. Fair enough?** [details](#commercial-licenses)
-Our guarantee:  If jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch!
----
 
+Our guarantee:  If jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch!
+
+---
+ 
+ 
 ## Cut code-reading token usage by **95% or more**
 
 Most AI agents explore repositories the expensive way:
