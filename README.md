@@ -28,6 +28,10 @@ A crapload of detailed info: http://jcodemunch.com/
 of Express, FastAPI, Gin, Pydantic, Django, Flask, NestJS, Cobra, and
 this very repo: https://jgravelle.github.io/jcodemunch-observatory/
 
+**Token Cost Radar** — daily intelligence on AI token costs, minimization
+strategies, and budget trends for teams running Claude Code / Cursor / MCP:
+https://jcodemunch.com/radar/
+
 <!-- mcp-name: io.github.jgravelle/jcodemunch-mcp -->
  
  
@@ -39,7 +43,11 @@ Our guarantee:  If jCodeMunch doesn't pay for itself, you don't pay for jCodeMun
 ---
  
  
-## Cut code-reading token usage by **95% or more**
+> ### Real results, live from production
+> **313+ billion tokens saved** · **45,000+ developers** · **$1.58M+ in AI spend avoided** · **37,500+ kg CO₂ prevented**
+> Live telemetry at **[jcodemunch.com](https://jcodemunch.com/)** — benchmark: **95% average token reduction** across 15 tasks / 3 repositories.
+
+## Cut code-reading token usage by **95% or more** with precise symbol retrieval
 
 Most AI agents explore repositories the expensive way:
 
@@ -941,6 +949,42 @@ suite stays usable in plan mode.
 > is verified; the container-to-host network dial depends on your Docker setup.
 
 </details>
+
+## FAQ
+
+**How much can I save on Claude / Opus tokens?**
+In retrieval-heavy workflows, code-reading tokens typically drop **95%+** because
+the agent fetches exact symbols instead of brute-reading whole files — benchmarked
+at a 95% average reduction across 15 tasks / 3 repositories, with peaks of 99.8%
+on large repos. Compact [MUNCH](SPEC_MUNCH.md) encoding then trims another ~45%
+off the wire. Full methodology and harness: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md)
+and [benchmarks/](benchmarks/).
+
+**Does it work with large monorepos?**
+Yes. It indexes incrementally, detects workspace members (pnpm / yarn / npm /
+Turborepo / Cargo / Go workspaces), and scopes queries to subpaths, so retrieval
+stays cheap as the repo grows. A file watcher keeps the index fresh.
+
+**What languages are supported?**
+70+ languages, including Python, JavaScript/TypeScript, Go, Rust, Java, C/C++,
+C#, PHP, Ruby, Swift, and Kotlin via tree-sitter AST parsing. Full matrix:
+[LANGUAGE_SUPPORT.md](LANGUAGE_SUPPORT.md).
+
+**Which agents and IDEs does it work with?**
+Any MCP client — Claude Code, Cursor, VS Code, Codex CLI, Continue, Windsurf,
+and more. One-click and CLI installs are at the [top of this README](#one-click-installs)
+and in the [Works With](#works-with) section.
+
+**Is it free for personal use?**
+Yes — free for personal use; commercial use needs a license. See
+[Commercial Licenses](#commercial-licenses). The guarantee: if jCodeMunch doesn't
+pay for itself, you don't pay for it.
+
+**How is this different from RAG or grep-based tools?**
+jCodeMunch retrieves at the **symbol level** with byte-level precision —
+functions, classes, importers, blast radius, class hierarchies — rather than
+returning fuzzy chunks (RAG) or raw line matches (grep) that the agent still has
+to read and reason over. Index once, query exactly what you need.
 
 ## Star History
 
