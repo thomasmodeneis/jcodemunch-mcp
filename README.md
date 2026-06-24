@@ -146,7 +146,7 @@ is a byte the agent doesn't pay to read.
 - **Traci Lim** (AWS · ASEAN AI Lead) — *"structural queries that native tools can't answer: find_importers, get_blast_radius, get_class_hierarchy, find_dead_code"* · [5 Repos That Save Token Usage in Claude Code](https://www.tracilzw.com/posts/5-repos-save-token-usage-claude-code)
 - **Eric Grill** — *"context is the scarce resource. Cut it by 90% and the whole stack gets cheaper and more reliable"* · [jCodemunch: Context Engine for AI Agents](https://www.ericgrill.com/blog/jcodemunch-mcp-context-engine-for-ai-agents)
 
-[Full recognition page →](https://j.gravelle.us/jCodeMunch/recognition.php)
+[Full recognition page →](https://jcodemunch.com/recognition.php)
 
 ---
 
@@ -158,15 +158,15 @@ is a byte the agent doesn't pay to read.
 >
 > **jCodeMunch-only licenses**
 >
-> * [Builder — $79](https://j.gravelle.us/jCodeMunch/descriptions.php#builder) — 1 developer
-> * [Studio — $349](https://j.gravelle.us/jCodeMunch/descriptions.php#studio) — up to 5 developers
-> * [Platform — $1,999](https://j.gravelle.us/jCodeMunch/descriptions.php#platform) — org-wide internal deployment
+> * [Builder — $79](https://jcodemunch.com/descriptions.php#builder) — 1 developer
+> * [Studio — $349](https://jcodemunch.com/descriptions.php#studio) — up to 5 developers
+> * [Platform — $1,999](https://jcodemunch.com/descriptions.php#platform) — org-wide internal deployment
 >
 > **Want the full jMunch suite (code + docs + data)?**
 >
-> * [Munch Trio Builder Bundle — $99](https://j.gravelle.us/jCodeMunch/descriptions.php#builder)
-> * [Munch Trio Studio Bundle — $449](https://j.gravelle.us/jCodeMunch/descriptions.php#studio)
-> * [Munch Trio Platform Bundle — $2,499](https://j.gravelle.us/jCodeMunch/descriptions.php#platform)
+> * [Munch Trio Builder Bundle — $99](https://jcodemunch.com/descriptions.php#builder)
+> * [Munch Trio Studio Bundle — $449](https://jcodemunch.com/descriptions.php#studio)
+> * [Munch Trio Platform Bundle — $2,499](https://jcodemunch.com/descriptions.php#platform)
 
 **Stop paying your model to read the whole damn file.**
 
@@ -527,7 +527,7 @@ jcodemunch-mcp install-pack fastapi
 jcodemunch-mcp install-pack express --license YOUR-KEY
 ```
 
-Free packs require no license. Licensed packs require a [jCodeMunch license](https://j.gravelle.us/jCodeMunch/#pricing). Use `--force` to re-download an already-installed pack.
+Free packs require no license. Licensed packs require a [jCodeMunch license](https://jcodemunch.com/#pricing). Use `--force` to re-download an already-installed pack.
 
 ---
 
