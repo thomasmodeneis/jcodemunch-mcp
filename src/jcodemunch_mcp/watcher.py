@@ -31,6 +31,45 @@ logger = logging.getLogger(__name__)
 # Default debounce in milliseconds
 DEFAULT_DEBOUNCE_MS = 200
 
+# Poll interval (ms) used ONLY when watchfiles falls back to polling instead of
+# native FS events. watchfiles auto-enables polling whenever it detects WSL
+# (inotify is unreliable across the WSL boundary), and its own default of 300ms
+# re-stats the entire watched tree ~3x/second per repo — pegging the CPU on a
+# many-repo / large-tree host (issue #356). For a background *freshness* daemon a
+# ~1s cadence is invisible, so we raise the floor and let the user tune it.
+# Ignored entirely when native events are in use (every non-WSL Linux/mac/Win).
+DEFAULT_WATCH_POLL_DELAY_MS = 1000
+
+
+def _watch_poll_delay_ms() -> int:
+    """Resolve the polling interval, honoring JCODEMUNCH_WATCH_POLL_DELAY_MS
+    (then watchfiles' own WATCHFILES_POLL_DELAY_MS as a fallback the user may
+    already know), else DEFAULT_WATCH_POLL_DELAY_MS. Non-positive / unparseable
+    values fall back to the default."""
+    for var in ("JCODEMUNCH_WATCH_POLL_DELAY_MS", "WATCHFILES_POLL_DELAY_MS"):
+        raw = os.environ.get(var)
+        if raw is None:
+            continue
+        try:
+            val = int(raw)
+        except ValueError:
+            continue
+        if val > 0:
+            return val
+    return DEFAULT_WATCH_POLL_DELAY_MS
+
+
+def _is_wsl() -> bool:
+    """True when running under the Windows Subsystem for Linux (watchfiles polls
+    here regardless of where the repo lives)."""
+    if sys.platform != "linux":
+        return False
+    try:
+        with open("/proc/version", "rt", encoding="utf-8", errors="ignore") as fh:
+            return "microsoft" in fh.read().lower()
+    except OSError:
+        return False
+
 
 class WatcherError(Exception):
     """Base exception for watcher errors that should not kill the embedding process."""
@@ -274,6 +313,9 @@ async def _watch_single(
         debounce=debounce_ms,
         recursive=True,
         step=200,
+        # Only consulted when watchfiles polls (e.g. under WSL); a higher delay
+        # there is the difference between idle and pegged CPU (#356).
+        poll_delay_ms=_watch_poll_delay_ms(),
     ):
         relevant = [
             (change_type, path)

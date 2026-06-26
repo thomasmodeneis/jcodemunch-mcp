@@ -25,7 +25,13 @@ from pathlib import Path
 from typing import IO, Optional
 
 from .storage import IndexStore
-from .watcher import DEFAULT_DEBOUNCE_MS, WatcherManager
+from .watcher import (
+    DEFAULT_DEBOUNCE_MS,
+    WatcherManager,
+    _is_wsl,
+    _watch_poll_delay_ms,
+    _watcher_output,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +101,21 @@ async def watch_all(
         quiet=quiet,
         log_file_handle=log_file_handle,
     )
+
+    # WSL forces watchfiles into polling (inotify is unreliable across the
+    # boundary), which re-stats every watched tree on an interval and can peg the
+    # CPU on a many-repo host (#356). Surface the levers once at startup so the
+    # user isn't left guessing why the daemon is busy.
+    if _is_wsl():
+        _watcher_output(
+            "jcodemunch-mcp watch-all: WSL detected -> watchfiles is polling "
+            f"(every {_watch_poll_delay_ms()}ms). To cut CPU: raise "
+            "JCODEMUNCH_WATCH_POLL_DELAY_MS, or for repos on the Linux filesystem "
+            "set WATCHFILES_FORCE_POLLING=false to use native inotify (near-zero "
+            "idle CPU). Repos under /mnt/* need polling; moving them onto the "
+            "Linux filesystem is faster all round.",
+            quiet=quiet, log_file_handle=log_file_handle,
+        )
 
     stop_event = asyncio.Event()
     try:

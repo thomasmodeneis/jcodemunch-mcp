@@ -2,6 +2,39 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.83] - 2026-06-26 - Tame watch-all CPU under WSL (#356)
+
+`watch-all` pegged 15-30% CPU continuously on WSL (reported by @Blainexi). Root
+cause is `watchfiles` behavior, not a busy loop: **watchfiles auto-enables
+polling whenever it detects WSL** (inotify is unreliable across the WSL
+boundary), and its default 300ms poll interval re-stats the entire watched tree
+several times a second — multiplied across every locally-indexed repo `watch-all`
+covers. `DefaultFilter` suppresses `node_modules`/`.git` *events* but the polling
+walk still stats them, so the cost is structural.
+
+### Changed
+
+- **Poll interval floor raised 300ms → 1000ms, and made tunable.** The `awatch`
+  call now passes `poll_delay_ms=_watch_poll_delay_ms()`, resolved from
+  `JCODEMUNCH_WATCH_POLL_DELAY_MS` (then watchfiles' own
+  `WATCHFILES_POLL_DELAY_MS` as a fallback), else the 1000ms default. For a
+  background *freshness* daemon a ~1s cadence is invisible; the CPU drop is
+  roughly proportional to the increase. The param is ignored entirely when
+  native FS events are in use (every non-WSL host), so this is a no-op off WSL.
+- **One-time WSL hint at `watch-all` startup** surfacing the two real levers:
+  raise `JCODEMUNCH_WATCH_POLL_DELAY_MS`, or — for repos on the Linux filesystem
+  — set `WATCHFILES_FORCE_POLLING=false` to use native inotify (near-zero idle
+  CPU). Repos under `/mnt/*` need polling; moving them onto the Linux filesystem
+  is faster all round.
+
+New helpers `watcher._watch_poll_delay_ms()` / `watcher._is_wsl()`;
+`DEFAULT_WATCH_POLL_DELAY_MS = 1000`. No `INDEX_VERSION` bump (runtime-only).
+
+### Tests
+
+- `tests/test_v1_108_83.py` (11): poll-delay default/override/precedence/clamping
+  + WSL detection (non-linux, microsoft-tagged `/proc/version`, bare-metal).
+
 ## [1.108.82] - 2026-06-24 - Exclude org_savings.db from list_repos
 
 The team-SKU org-rollup store (`org_savings.db`, written by `org/store.py`) lives
