@@ -460,6 +460,11 @@ uvx jcodemunch-mcp@latest --help      # uvx (forces a cache refresh)
 
 Check what you're running with `jcodemunch-mcp --version`.
 
+> **Prefer not to touch the command line?** [jMunch Console](https://github.com/jgravelle/jmunch-console)
+> (free, MIT, opt-in) makes upgrades one click — it shows an "update available"
+> badge when a newer release exists and runs the install for you in a visible
+> terminal (uv / pipx / pip, whichever you have), so you never copy a command.
+
 #### 2. Add it to your MCP client
 
 If you’re using Claude Code, pick whichever matches what you installed in step 1.
