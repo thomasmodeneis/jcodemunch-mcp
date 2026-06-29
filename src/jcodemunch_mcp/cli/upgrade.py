@@ -67,6 +67,26 @@ def detect_install_mechanism() -> tuple[str, str | None]:
     return "pip", None
 
 
+def watch_extra_install_command() -> str:
+    """Install-mechanism-appropriate command to add the optional ``watch`` extra.
+
+    The ``watch`` extra pulls in ``watchfiles``. A bare ``pip install
+    'jcodemunch-mcp[watch]'`` only works under plain pip; a pipx/uv-managed
+    install has no reachable ``pip`` and needs ``pipx inject`` / ``uv tool
+    install`` instead (the same install-mechanism blind spot as #357). Reuses
+    :func:`detect_install_mechanism` so the hint matches how jcm was installed.
+    """
+    mechanism, _ = detect_install_mechanism()
+    if mechanism == "pipx":
+        return "pipx inject jcodemunch-mcp watchfiles"
+    if mechanism == "uv":
+        return "uv tool install --force 'jcodemunch-mcp[watch]'"
+    if mechanism == "uvx":
+        return "uvx --with watchfiles jcodemunch-mcp <command>"
+    # pip, or a pip-less venv where we can't do better than the canonical form.
+    return "pip install 'jcodemunch-mcp[watch]'"
+
+
 def _refresh_hooks(*, yes: bool = True) -> int:
     """Refresh hook templates/config via ``init --hooks`` (no pip required).
 

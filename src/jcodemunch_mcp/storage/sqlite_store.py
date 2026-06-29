@@ -29,6 +29,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Repos whose JSON index already failed migration schema validation this
+# process. A stale/corrupt JSON index (e.g. a starter pack's `.pack/<id>`)
+# never becomes loadable, so every load_index / eager-migrate path retries the
+# migration and re-warns — once per indexed repo enumerated, which spams hard
+# under `watch-all`. Warn once per (owner, name) instead.
+_MIGRATION_SCHEMA_WARNED: set = set()
+
 # SQL to create tables and indexes
 _SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS meta (
@@ -2526,10 +2533,15 @@ class SQLiteIndexStore:
 
         # Schema validation: require essential fields (matches original load_index)
         if not isinstance(data, dict) or "indexed_at" not in data:
-            logger.warning(
-                "Migration schema validation failed for %s/%s — missing required fields",
-                owner, name,
-            )
+            warn_key = (owner, name)
+            if warn_key not in _MIGRATION_SCHEMA_WARNED:
+                _MIGRATION_SCHEMA_WARNED.add(warn_key)
+                logger.warning(
+                    "Migration schema validation failed for %s/%s — missing required "
+                    "fields (stale or corrupt JSON index; remove it with "
+                    "`jcodemunch-mcp delete-index %s/%s`)",
+                    owner, name, owner, name,
+                )
             return None
 
         source_files = data.get("source_files", [])

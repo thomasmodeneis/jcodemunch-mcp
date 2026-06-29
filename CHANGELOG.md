@@ -2,6 +2,31 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.85] - 2026-06-29 - Install-mechanism-aware `watch` hint + migration-warning de-spam (#357)
+
+Two `watch-all` papercuts surfaced by @zakblacki (pipx install, py3.14) while
+following up on #357.
+
+### Changed
+
+- **The "watchfiles is required" hint now matches how jcm was installed.** All
+  three sites (`server.py` `--watcher`, `watcher.py` `_require_watchfiles` and
+  the `awatch` import) suggested a bare `pip install 'jcodemunch-mcp[watch]'`,
+  which fails on a pipx/uv-managed install (no reachable `pip`) — the same blind
+  spot fixed for `upgrade` in #357. New `watch_extra_install_command()` in
+  `cli/upgrade.py` reuses `detect_install_mechanism()` to print the right one:
+  `pipx inject jcodemunch-mcp watchfiles`, `uv tool install --force
+  'jcodemunch-mcp[watch]'`, or `uvx --with watchfiles jcodemunch-mcp <command>`.
+  The watcher imports it lazily and falls back to the canonical pip form.
+- **Stale-JSON migration warning no longer spams.** A stale/corrupt JSON index
+  (e.g. a starter pack's `.pack/<id>`) fails schema validation, never becomes
+  loadable, and so every load/eager-migrate path retried the migration and
+  re-warned — eight times in a single `watch-all` on the reporter's host.
+  `_migrate_from_json` now warns at most once per `(owner, name)` per process,
+  and the message tells you how to clear it (`delete-index <owner>/<name>`).
+
+No INDEX_VERSION bump. New `tests/test_v1_108_85.py`.
+
 ## [1.108.84] - 2026-06-28 - Install-mechanism-aware `upgrade` (#357)
 
 `jcodemunch-mcp upgrade` shelled out to `python -m pip install -U` blindly.

@@ -87,10 +87,21 @@ class WatcherDependencyError(WatcherError):
     pass
 
 
-_WATCHFILES_MISSING_MSG = (
-    "watchfiles is required for the watch subcommand. "
-    "Install it with: pip install 'jcodemunch-mcp[watch]'"
-)
+def _watchfiles_missing_msg() -> str:
+    """Install hint for the optional ``watch`` extra, aware of how jcm was installed.
+
+    A bare ``pip install 'jcodemunch-mcp[watch]'`` is wrong on pipx/uv installs
+    (no reachable pip) — the same blind spot fixed for ``upgrade`` in #357. Lazy
+    import keeps the core watcher free of a hard dependency on the CLI package,
+    and falls back to the canonical pip form if detection is unavailable.
+    """
+    try:
+        from .cli.upgrade import watch_extra_install_command
+
+        cmd = watch_extra_install_command()
+    except Exception:
+        cmd = "pip install 'jcodemunch-mcp[watch]'"
+    return f"watchfiles is required for the watch subcommand. Install it with: {cmd}"
 
 
 def _require_watchfiles() -> None:
@@ -103,7 +114,7 @@ def _require_watchfiles() -> None:
     try:
         import watchfiles  # noqa: F401
     except ImportError as exc:
-        raise WatcherDependencyError(_WATCHFILES_MISSING_MSG) from exc
+        raise WatcherDependencyError(_watchfiles_missing_msg()) from exc
 
 
 # Platform-specific: fcntl for Unix (advisory locking)
@@ -303,10 +314,7 @@ async def _watch_single(
     try:
         from watchfiles import awatch, Change
     except ImportError as exc:
-        raise ImportError(
-            "watchfiles is required for the watch subcommand. "
-            "Install it with: pip install 'jcodemunch-mcp[watch]'"
-        ) from exc
+        raise ImportError(_watchfiles_missing_msg()) from exc
 
     async for changes in awatch(
         folder_path,
