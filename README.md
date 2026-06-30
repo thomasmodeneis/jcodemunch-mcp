@@ -369,7 +369,7 @@ pip install jcodemunch-mcp
 jcodemunch-mcp init
 ```
 
-`init` auto-detects your MCP clients (Claude Code, Claude Desktop, Cursor, Windsurf, Continue), writes their config entries, installs the CLAUDE.md prompt policy so your agent actually uses jCodeMunch, optionally installs enforcement hooks (PreToolUse read guard + PostToolUse auto-reindex + PreCompact session snapshot), optionally indexes your project, and audits your agent config files for token waste. Run `jcodemunch-mcp init --help` for all flags.
+`init` auto-detects your MCP clients (Claude Code, Claude Desktop, Cursor, Windsurf, Continue, Antigravity), writes their config entries, installs the CLAUDE.md prompt policy so your agent actually uses jCodeMunch, optionally installs enforcement hooks (PreToolUse read guard + PostToolUse auto-reindex + PreCompact session snapshot), optionally indexes your project, and audits your agent config files for token waste. Run `jcodemunch-mcp init --help` for all flags.
 
 > **Prefer a one-line CLAUDE.md?** From v1.71.0 the server exposes a
 > `jcodemunch_guide` tool that returns the same policy snippet `claude-md
@@ -862,6 +862,7 @@ Tested configurations:
 |----------|--------|
 | **Claude Code / Claude Desktop** | `jcodemunch-mcp init` (auto-detects and patches config) |
 | **Cursor / Windsurf / Continue** | `jcodemunch-mcp init` or manual `mcp.json` |
+| **Antigravity (Google)** | `jcodemunch-mcp install antigravity` — registers the MCP server in `~/.gemini/settings.json` and installs the skill bundle under `~/.gemini/antigravity/skills/` |
 | **OpenAI Codex CLI** | Add `[mcp_servers.jcodemunch]` block to `~/.codex/config.toml` (see below) |
 | **Cline / Roo Code** | Add via the MCP marketplace UI or paste `command: uvx`, `args: ["jcodemunch-mcp"]` |
 | **Zed** | Add to `settings.json` under `context_servers` |

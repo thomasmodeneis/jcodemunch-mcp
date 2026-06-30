@@ -2,6 +2,36 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.88] - 2026-06-30 - Antigravity (Google) install target (#307)
+
+First-class onboarding for Google's Antigravity agent, which follows the Gemini
+CLI configuration contract.
+
+### Added
+
+- **`jcodemunch-mcp install antigravity`** (and `install --all` / `init`
+  auto-detection / `install-status`). Antigravity is detected when `~/.gemini/`
+  exists. Two artifacts:
+  - **MCP registration** into `~/.gemini/settings.json` under the top-level
+    `mcpServers` object — the same shape every other JSON client uses, so it
+    rides the existing patch path.
+  - **Skill bundle** written to `~/.gemini/antigravity/skills/jcodemunch/SKILL.md`
+    (the same tier-aware bundle as the Claude skill).
+- `install-status` / `--json` now reports the Antigravity skill alongside the
+  Claude global/project skills.
+- `uninstall` removes the Antigravity MCP entry and skill (preserving any
+  user-authored skill at that path).
+
+New `cli/antigravity.py` owns the Antigravity-specific paths; `cli/skills.py`
+gains a directory-keyed core (`_install_skill_at` / `_uninstall_skill_at` /
+`_skill_status_at`) shared by the Claude and Antigravity bundles (no behavior
+change to the Claude skill). New `tests/test_antigravity_install.py` (13). No
+INDEX_VERSION bump.
+
+> Scope note: this is the MCP + skills layer (PRD phase 1). The AfterTool
+> context-enrichment hook is a later phase. Live end-to-end confirmation in an
+> Antigravity session is still pending before #307 is closed.
+
 ## [1.108.87] - 2026-06-30 - License v1.1: tighten redistribution & attribution terms
 
 Dual-Use License updated to **v1.1**. The non-commercial grant previously

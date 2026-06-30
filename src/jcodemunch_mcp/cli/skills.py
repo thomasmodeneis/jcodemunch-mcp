@@ -205,19 +205,16 @@ def _build_skill_content() -> str:
     return "\n".join(body_lines)
 
 
-def install_claude_skill(
-    scope: str = "global",
-    *,
-    dry_run: bool = False,
-    backup: bool = True,
-) -> str:
-    """Write the jcodemunch Claude Agent Skill bundle.
+# ---------------------------------------------------------------------------
+# Directory-keyed core — shared by the Claude skill (.claude/skills/jcodemunch/)
+# and the Antigravity skill (~/.gemini/antigravity/skills/jcodemunch/). Each
+# `skill_dir` is the per-skill folder that holds SKILL.md. Return messages and
+# cleanup behavior are identical across destinations.
+# ---------------------------------------------------------------------------
 
-    scope: "global" (~/.claude/skills/jcodemunch/) or "project"
-        (./.claude/skills/jcodemunch/).
-    Returns a status message.
-    """
-    path = _skill_path(scope)
+def _install_skill_at(skill_dir: Path, *, dry_run: bool = False, backup: bool = True) -> str:
+    """Write the jcodemunch skill bundle into ``skill_dir``. Returns a status message."""
+    path = skill_dir / "SKILL.md"
     if _has_skill(path):
         return f"  skill already present at {path}"
     if dry_run:
@@ -232,27 +229,15 @@ def install_claude_skill(
     return f"  wrote {path}"
 
 
-def uninstall_claude_skill(
-    scope: str = "global",
-    *,
-    dry_run: bool = False,
-    backup: bool = True,  # accepted for signature parity with other uninstall_*; not used
-) -> str:
-    """Remove the jcodemunch Claude Agent Skill bundle for the given scope.
+def _uninstall_skill_at(skill_dir: Path, *, dry_run: bool = False) -> str:
+    """Remove the jcodemunch skill bundle from ``skill_dir``.
 
-    Preserves user-authored content: if the SKILL.md at the target path
-    doesn't contain our marker, we leave it alone. After removing the
-    SKILL.md we also rmdir the parent (`jcodemunch/`) and grandparent
-    (`skills/`) directories iff they're empty — we created them; safe
-    to clean up.
-
-    Note: `backup` is intentionally a no-op here. Writing the .bak next to
-    SKILL.md would defeat the empty-parent cleanup pass; the skill content
-    is regenerable by re-running `jcm install ... --skills`, so the .bak
-    has no real safety value on the way out.
+    Preserves user-authored content (only removes a SKILL.md carrying our
+    marker), then rmdirs the per-skill dir and an empty ``skills/`` grandparent
+    we created. ``.bak`` is intentionally not written on the way out — it would
+    defeat the empty-dir cleanup and the skill is regenerable.
     """
-    del backup  # acknowledged unused
-    path = _skill_path(scope)
+    path = skill_dir / "SKILL.md"
     if not path.exists():
         return f"  no skill at {path}"
     if not _has_skill(path):
@@ -260,13 +245,11 @@ def uninstall_claude_skill(
     if dry_run:
         return f"  would remove {path}"
     path.unlink()
-    # Remove the per-skill directory if it's empty (we created it).
     parent = path.parent
     try:
         parent.rmdir()
     except OSError:
         return f"  removed {path} (parent dir kept — contains other files)"
-    # Remove the `.claude/skills/` grandparent iff empty (no other skills).
     skills_parent = parent.parent
     if skills_parent.name == "skills":
         try:
@@ -276,10 +259,41 @@ def uninstall_claude_skill(
     return f"  removed {path}"
 
 
-def skill_status(scope: str) -> dict:
-    """Read-only status: is the jcodemunch skill installed at this scope?"""
-    path = _skill_path(scope)
+def _skill_status_at(skill_dir: Path) -> dict:
+    """Read-only status for a skill bundle directory."""
+    path = skill_dir / "SKILL.md"
     return {
         "path": str(path),
         "present": _has_skill(path),
     }
+
+
+def install_claude_skill(
+    scope: str = "global",
+    *,
+    dry_run: bool = False,
+    backup: bool = True,
+) -> str:
+    """Write the jcodemunch Claude Agent Skill bundle.
+
+    scope: "global" (~/.claude/skills/jcodemunch/) or "project"
+        (./.claude/skills/jcodemunch/).
+    Returns a status message.
+    """
+    return _install_skill_at(_skill_dir(scope), dry_run=dry_run, backup=backup)
+
+
+def uninstall_claude_skill(
+    scope: str = "global",
+    *,
+    dry_run: bool = False,
+    backup: bool = True,  # accepted for signature parity with other uninstall_*; not used
+) -> str:
+    """Remove the jcodemunch Claude Agent Skill bundle for the given scope."""
+    del backup  # acknowledged unused (regenerable; .bak would defeat empty-dir cleanup)
+    return _uninstall_skill_at(_skill_dir(scope), dry_run=dry_run)
+
+
+def skill_status(scope: str) -> dict:
+    """Read-only status: is the jcodemunch skill installed at this scope?"""
+    return _skill_status_at(_skill_dir(scope))

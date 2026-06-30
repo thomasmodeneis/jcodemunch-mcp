@@ -332,7 +332,7 @@ def test_print_status_json(capsys):
 # ---------------------------------------------------------------------------
 
 def test_agent_aliases_complete():
-    expected = {"claude-code", "claude-desktop", "cursor", "windsurf", "continue", "all"}
+    expected = {"claude-code", "claude-desktop", "cursor", "windsurf", "continue", "antigravity", "all"}
     assert set(_AGENT_ALIASES) == expected
 
 

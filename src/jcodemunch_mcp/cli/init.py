@@ -247,6 +247,14 @@ def _detect_clients() -> list[MCPClient]:
     if continue_dir.exists():
         clients.append(MCPClient("Continue", continue_dir / "config.json", "json_patch"))
 
+    # Antigravity (Google) — Gemini-family contract: MCP servers live in
+    # ~/.gemini/settings.json under the same `mcpServers` shape we patch
+    # elsewhere, so registration reuses the json_patch path. (Skills install
+    # separately under ~/.gemini/antigravity/skills/, handled in cli/antigravity.)
+    from .antigravity import gemini_dir, gemini_settings_path
+    if gemini_dir().exists():
+        clients.append(MCPClient("Antigravity", gemini_settings_path(), "json_patch"))
+
     return clients
 
 
@@ -1167,6 +1175,17 @@ def run_init(
                 f"Write .claude/skills/jcodemunch/SKILL.md {where}",
                 "Claude loads the skill on demand for code-navigation tasks instead of carrying the policy block in baseline context every turn",
             ))
+        # Antigravity uses a separate skills dir (~/.gemini/antigravity/skills/);
+        # install the same bundle there when an Antigravity/Gemini config exists.
+        from .antigravity import antigravity_present, install_antigravity_skill
+        if antigravity_present():
+            amsg = install_antigravity_skill(dry_run=dry_run, backup=backup)
+            print(f"  Antigravity Skill:{amsg}")
+            if demo and "would" in amsg:
+                _demo_actions.append((
+                    "Write ~/.gemini/antigravity/skills/jcodemunch/SKILL.md",
+                    "Antigravity loads the jCodemunch skill on demand for code-navigation tasks",
+                ))
 
     # ----- Step 3: Agent hooks -----
     do_hooks = hooks
@@ -1553,6 +1572,7 @@ _AGENT_ALIASES: dict[str, str] = {
     "cursor": "Cursor",
     "windsurf": "Windsurf",
     "continue": "Continue",
+    "antigravity": "Antigravity",
     "all": "__all__",
 }
 
@@ -1650,6 +1670,9 @@ def run_uninstall(
         for scope in ("global", "project"):
             msg = uninstall_claude_skill(scope=scope, dry_run=dry_run, backup=backup)
             print(f"  Claude Skill ({scope}):{msg}")
+        from .antigravity import uninstall_antigravity_skill
+        amsg = uninstall_antigravity_skill(dry_run=dry_run)
+        print(f"  Antigravity Skill:{amsg}")
 
     print()
     if dry_run:
@@ -1757,9 +1780,11 @@ def install_status() -> dict[str, Any]:
 
     # Claude Agent Skill bundle (v1.107.0) — per-scope presence
     from .skills import skill_status as _skill_status
+    from .antigravity import antigravity_skill_status as _ag_skill_status
     report["skills"] = {
         "global": _skill_status("global"),
         "project": _skill_status("project"),
+        "antigravity": _ag_skill_status(),
     }
 
     return report
@@ -1802,6 +1827,10 @@ def print_status(report: Optional[dict[str, Any]] = None, *, as_json: bool = Fal
             info = report["skills"].get(scope, {})
             flag = "[x]" if info.get("present") else "[ ]"
             print(f"  {flag} {scope}  ({info.get('path', '')})")
+        ag = report["skills"].get("antigravity")
+        if ag:
+            flag = "[x]" if ag.get("present") else "[ ]"
+            print(f"  {flag} antigravity  ({ag.get('path', '')})")
     print()
 
 
