@@ -2,6 +2,30 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.90] - 2026-06-30 - New tool: get_endpoint_impact (endpoint-centric blast radius)
+
+### Added
+
+- **`get_endpoint_impact`** — "what breaks if I change this HTTP endpoint?" Given
+  an endpoint (`GET /users` or `/users`, verb optional) or a `handler_symbol_id`,
+  it resolves the route to its handler and fuses the existing impact primitives
+  into one read-only answer: importing files + callers (blast radius) and the
+  templates the handler renders.
+- **Unified endpoint resolution** over the route coverage the index already
+  exposes: string-dispatched routes via `flow_edges` (Django/Express/Flask/Rails)
+  and decorator-bound routes via the gateway classification `get_signal_chains`
+  uses (Flask/FastAPI/Spring), matched by verb + path (exact, then suffix). For
+  prefix-composed FastAPI (`APIRouter(prefix=...)`) or Spring class-level
+  mappings whose full URL isn't resolved yet, pass `handler_symbol_id`.
+
+Standard tier (alongside `get_blast_radius` / `get_pr_risk_profile`), so
+`core_compact` is unaffected. New `tools/get_endpoint_impact.py`; registered in
+`server.py`. New `tests/test_endpoint_impact.py` (10). No INDEX_VERSION bump.
+
+> First slice of the framework-routes PRD. Deeper framework path resolution
+> (FastAPI prefix chains, Spring class-level mapping inheritance, Nuxt file
+> routes) is the follow-on that enriches this same endpoint table.
+
 ## [1.108.89] - 2026-06-30 - Revert the 1.108.88 Antigravity install target; document correct manual config
 
 1.108.88 added an `install antigravity` target that wrote to the **wrong**

@@ -61,7 +61,7 @@ _CANONICAL_TOOL_NAMES: tuple[str, ...] = (
     # Impact & Safety
     "get_blast_radius", "check_rename_safe", "check_delete_safe", "check_edit_safe",
     "get_impact_preview", "get_changed_symbols", "plan_refactoring",
-    "get_symbol_provenance", "get_pr_risk_profile",
+    "get_symbol_provenance", "get_pr_risk_profile", "get_endpoint_impact",
     # Symbol navigation
     "find_implementations",
     # Architecture
@@ -119,7 +119,7 @@ _SNIPPET_TOOL_CATEGORIES: list[tuple[str, list[str]]] = [
                           "check_edit_safe",
                           "get_impact_preview", "get_changed_symbols",
                           "plan_refactoring", "get_symbol_provenance",
-                          "get_pr_risk_profile"]),
+                          "get_pr_risk_profile", "get_endpoint_impact"]),
     ("Architecture", ["get_dependency_cycles", "get_coupling_metrics",
                       "get_layer_violations", "get_extraction_candidates",
                       "get_cross_repo_map", "get_tectonic_map",
@@ -178,7 +178,7 @@ _TOOL_TIER_STANDARD: frozenset[str] = _TOOL_TIER_CORE | frozenset({
     # Impact & Safety
     "get_blast_radius", "check_rename_safe", "check_delete_safe", "check_edit_safe",
     "get_impact_preview", "get_changed_symbols", "get_symbol_diff",
-    "get_symbol_provenance", "get_pr_risk_profile",
+    "get_symbol_provenance", "get_pr_risk_profile", "get_endpoint_impact",
     # Symbol navigation
     "find_implementations",
     # Quality & Metrics
@@ -3452,6 +3452,46 @@ def _build_tools_list() -> list[Tool]:
             },
         ),
         Tool(
+            name="get_endpoint_impact",
+            description=(
+                "Endpoint-centric impact analysis: 'what breaks if I change this HTTP endpoint?' "
+                "Given an endpoint (method + URL, e.g. 'GET /users') or a handler symbol, returns "
+                "the handler plus what changing it affects — importing files + callers (blast radius) "
+                "and any templates it renders. Read-only. Resolves string-dispatch routes "
+                "(Django/Express/Flask/Rails) and decorator routes (Flask/FastAPI/Spring) by their "
+                "local path; for prefix-composed FastAPI (APIRouter prefix) or Spring class-level "
+                "mappings whose full URL isn't resolved yet, pass handler_symbol_id instead."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository identifier (owner/repo or just repo name)",
+                    },
+                    "endpoint": {
+                        "type": "string",
+                        "description": "HTTP endpoint to analyse, e.g. 'GET /users' or '/users' (verb optional). One of endpoint / handler_symbol_id is required.",
+                    },
+                    "handler_symbol_id": {
+                        "type": "string",
+                        "description": "Analyse a handler symbol directly instead of by URL (use for prefixed routes whose full path isn't resolved).",
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "Import hops for blast radius (1 = direct importers; max 3).",
+                        "default": 1,
+                    },
+                    "call_depth": {
+                        "type": "integer",
+                        "description": "Call-graph hops for caller detection (0 disables; max 3).",
+                        "default": 2,
+                    },
+                },
+                "required": ["repo"],
+            },
+        ),
+        Tool(
             name="render_diagram",
             description=(
                 "Render any graph-producing tool's output as rich, annotated Mermaid markup. "
@@ -5181,6 +5221,19 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
                     max_depth=arguments.get("max_depth", 5),
                     include_tests=arguments.get("include_tests", False),
                     include_flow_edges=arguments.get("include_flow_edges", True),
+                    storage_path=storage_path,
+                )
+            )
+        elif name == "get_endpoint_impact":
+            from .tools.get_endpoint_impact import get_endpoint_impact
+            result = await asyncio.to_thread(
+                functools.partial(
+                    get_endpoint_impact,
+                    repo=arguments["repo"],
+                    endpoint=arguments.get("endpoint"),
+                    handler_symbol_id=arguments.get("handler_symbol_id"),
+                    depth=arguments.get("depth", 1),
+                    call_depth=arguments.get("call_depth", 2),
                     storage_path=storage_path,
                 )
             )
