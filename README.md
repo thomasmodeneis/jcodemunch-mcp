@@ -128,9 +128,9 @@ is a byte the agent doesn't pay to read.
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.92](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.92)** (2026-07-02) — Progress-notification flood control + response drain (#359)
 - **[v1.108.91](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.91)** (2026-07-01) — Endpoint-scoped infrastructure links (get_endpoint_impact include_infra)
 - **[v1.108.90](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.90)** (2026-06-30) — New tool: get_endpoint_impact (endpoint-centric blast radius)
-- **[v1.108.89](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.89)** (2026-06-30) — Revert the 1.108.88 Antigravity install target; document correct manual config
 <!-- WHATSNEW:END -->
 
 ![License](https://img.shields.io/badge/license-dual--use-blue)

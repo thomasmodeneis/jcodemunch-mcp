@@ -4196,6 +4196,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
 
     _t0_call = time.perf_counter()
     _call_ok = True
+    _reporter_ref = None  # progress reporter; drained in finally (#359)
     try:   # main handler try starts here, before coerce
         # Extract cross-cutting args that are not part of any tool's schema.
         # `format` controls compact-output encoding (see .encoding package).
@@ -4272,7 +4273,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
                               "index_file": "Index", "embed_repo": "Embed"}[name]
                     _reporter = ProgressReporter(_progress_notify, _label)
                     _progress_cb = _reporter.update
-                    _reporter_ref = _reporter  # prevent GC
+                    _reporter_ref = _reporter  # drained in finally (#359)
             except Exception:
                 logger.debug("Progress setup failed", exc_info=True)
 
@@ -5559,6 +5560,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
         }
         return _error_call_result(json.dumps(payload, separators=(',', ':')))
     finally:
+        # Flush in-flight progress notifications BEFORE the response is
+        # written (the SDK writes only after call_tool returns, and finally
+        # runs before that). A progress notification trailing its response
+        # is a protocol error to strict clients — Claude Code drops the
+        # stdio connection / loses the tool result (#359).
+        if _reporter_ref is not None:
+            try:
+                from .progress import drain_reporter
+                await drain_reporter(_reporter_ref)
+            except Exception:
+                logger.debug("Progress drain failed for %s", name, exc_info=True)
         try:
             from .storage.token_tracker import record_tool_latency
             duration_ms = (time.perf_counter() - _t0_call) * 1000.0

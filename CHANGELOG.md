@@ -2,6 +2,40 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.92] - 2026-07-02 - Progress-notification flood control + response drain (#359)
+
+Full-repo `index_folder` over MCP stdio could lose its tool result on large
+repos (reported by @Bamieh on a 2,118-file TS monorepo: the call "hangs",
+the client surfaces a missing tool result, yet the index completes fine
+server-side). Explicit-`paths` calls and the CLI were unaffected.
+
+Root cause, reproduced and isolated with a raw stdio driver: the indexer
+emitted **one `notifications/progress` per file** (~2,000 notifications in
+~4 s) and sends are scheduled fire-and-forget from the worker thread, so
+queued notifications could also be written **after** the tool response.
+Strict MCP clients penalize both — the flood loses the in-flight result,
+and a response-trailing notification is "progress for an unknown token",
+which drops the whole stdio connection.
+
+### Fixed
+
+- **`ProgressReporter.update()` throttles sends.** At most one notification
+  per 1% of forward progress AND one per 100 ms of wall clock (a 2,000-file
+  walk now emits ~40 instead of ~2,000). The final 100% send always goes
+  out. Rates are constructor-injectable; monotonicity and thread-safety
+  unchanged.
+- **The dispatcher drains in-flight notifications before returning.** New
+  `progress.drain_reporter()` awaits every scheduled send (2 s cap) in
+  `call_tool`'s `finally`, which runs before the SDK writes the response —
+  so no notification can ever trail its response, on any success or error
+  path. `make_progress_notify`'s callable now returns the scheduled send's
+  future so the reporter can track in-flight sends.
+
+No behavior change for clients that don't send a `progressToken` (no
+notifications were ever emitted for them). NO INDEX_VERSION bump.
+
+New `tests/test_v1_108_92.py` (10). Files: `progress.py`, `server.py`.
+
 ## [1.108.91] - 2026-07-01 - Endpoint-scoped infrastructure links (get_endpoint_impact include_infra)
 
 ### Added

@@ -44,7 +44,8 @@ class TestProgressReporterUpdate:
 
     def test_update_emits_progress(self):
         calls = []
-        r = ProgressReporter(lambda p, t, m: calls.append((p, t, m)), "Index")
+        r = ProgressReporter(lambda p, t, m: calls.append((p, t, m)), "Index",
+                             min_step=0.0, min_interval=0.0)
         r.start(total=10)
         r.update(3, 10, "file_a.py")
         r.update(7, 10, "file_b.py")
@@ -61,7 +62,8 @@ class TestProgressReporterMonotonic:
 
     def test_backwards_update_is_dropped(self):
         calls = []
-        r = ProgressReporter(lambda p, t, m: calls.append((p, t, m)), "Index")
+        r = ProgressReporter(lambda p, t, m: calls.append((p, t, m)), "Index",
+                             min_step=0.0, min_interval=0.0)
         r.start(total=10)
         r.update(5, 10, "a")
         r.update(3, 10, "b")  # backwards — should be silently dropped
@@ -120,7 +122,8 @@ class TestProgressReporterFormat:
 
     def test_format_contains_expected_parts(self):
         calls = []
-        r = ProgressReporter(lambda p, t, m: calls.append((p, t, m)), "Embed", bar_width=10)
+        r = ProgressReporter(lambda p, t, m: calls.append((p, t, m)), "Embed", bar_width=10,
+                             min_step=0.0, min_interval=0.0)
         r.start(total=200)
         r.update(100, 200, "MySymbol")
 

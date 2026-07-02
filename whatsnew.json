@@ -1,6 +1,12 @@
 {
-  "current": "1.108.91",
+  "current": "1.108.92",
   "entries": [
+    {
+      "version": "1.108.92",
+      "date": "2026-07-02",
+      "title": "Progress-notification flood control + response drain (#359)",
+      "summary": "Full-repo `index_folder` over MCP stdio could lose its tool result on large repos (reported by @Bamieh on a 2,118-file TS monorepo: the call \"hangs\", the client surfaces a missing tool result, yet the index completes fine server-side). Explicit-`paths` calls and the CLI were unaffected."
+    },
     {
       "version": "1.108.91",
       "date": "2026-07-01",
@@ -12,12 +18,6 @@
       "date": "2026-06-30",
       "title": "New tool: get_endpoint_impact (endpoint-centric blast radius)",
       "summary": "- **`get_endpoint_impact`** \u2014 \"what breaks if I change this HTTP endpoint?\" Given an endpoint (`GET /users` or `/users`, verb optional) or a `handler_symbol_id`, it resolves the route to its handler and fuses the existing impact primitives into one read-only answer: importing files + callers (blast radius) and the"
-    },
-    {
-      "version": "1.108.89",
-      "date": "2026-06-30",
-      "title": "Revert the 1.108.88 Antigravity install target; document correct manual config",
-      "summary": "1.108.88 added an `install antigravity` target that wrote to the **wrong** config locations (`~/.gemini/settings.json` and `~/.gemini/antigravity/skills/`), so it did not actually configure Antigravity. This release backs that out and replaces it with correctly-pathed documentation."
     }
   ]
 }
