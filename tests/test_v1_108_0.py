@@ -105,6 +105,70 @@ class TestExplicitPaths:
         warnings = result.get("warnings") or []
         assert any("junk.bin" in str(w) and "unsupported" in str(w).lower() for w in warnings)
 
+    def test_secret_file_in_paths_rejected(self, tmp_path: Path):
+        """An explicitly-listed credential file must be refused, matching the
+        full walk. Regression for the paths=[...] secret-filter bypass — the
+        explicit branch checked only symlink/extension/size, so a caller naming
+        a .env / secrets/*.yaml / credentials.json indexed it and it was then
+        served unredacted by the source-dump tools.
+        """
+        from jcodemunch_mcp.tools.index_folder import (
+            resolve_explicit_paths,
+            discover_local_files,
+        )
+        from jcodemunch_mcp.security import is_secret_file
+
+        (tmp_path / "config" / "secrets").mkdir(parents=True)
+        (tmp_path / "config" / "secrets" / "database.yaml").write_text(
+            "aws_secret_access_key: AKIAIOSFODNN7EXAMPLE\npassword: hunter2\n"
+        )
+        (tmp_path / "credentials.json").write_text(
+            '{"aws_secret_access_key": "AKIAIOSFODNN7EXAMPLE"}\n'
+        )
+        (tmp_path / "app.py").write_text("def app():\n    return 1\n")
+
+        # Sanity: the classifier flags both.
+        assert is_secret_file("config/secrets/database.yaml")
+        assert is_secret_file("credentials.json")
+
+        files, warnings, skip_counts, _req = resolve_explicit_paths(
+            tmp_path,
+            ["config/secrets/database.yaml", "credentials.json", "app.py"],
+            max_files=100,
+        )
+        names = sorted(f.name for f in files)
+        assert names == ["app.py"], names
+        assert skip_counts.get("secret") == 2, skip_counts
+        assert any("secret" in w.lower() for w in warnings), warnings
+
+        # Parity with the full walk: it refuses the same two files.
+        walk_files, _ww, walk_skip = discover_local_files(tmp_path, max_files=100)
+        assert sorted(f.name for f in walk_files) == ["app.py"]
+        assert walk_skip.get("secret") == 2, walk_skip
+
+    def test_secret_symbols_never_reach_index_via_paths(self, tmp_path: Path):
+        """End-to-end: index_folder(paths=[secret]) must not persist the
+        credential file's contents into the index."""
+        (tmp_path / "ok.py").write_text("def ok():\n    return 1\n")
+        (tmp_path / ".env").write_text("AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE\n")
+
+        from jcodemunch_mcp.tools.index_folder import index_folder
+        result = index_folder(
+            path=str(tmp_path),
+            paths=["ok.py", ".env"],
+            use_ai_summaries=False,
+            incremental=False,
+        )
+        assert result.get("success") is True, result
+        from jcodemunch_mcp.storage import IndexStore
+        store = IndexStore()
+        owner, repo_name = result["repo"].split("/", 1)
+        idx = store.load_index(owner, repo_name)
+        indexed_files = {
+            (s.file if hasattr(s, "file") else s.get("file")) for s in idx.symbols
+        }
+        assert not any(str(f).endswith(".env") for f in indexed_files if f), indexed_files
+
     def test_paths_omitted_does_full_walk(self, tmp_path: Path):
         (tmp_path / "a.py").write_text("def alpha():\n    return 1\n")
         (tmp_path / "b.py").write_text("def beta():\n    return 2\n")

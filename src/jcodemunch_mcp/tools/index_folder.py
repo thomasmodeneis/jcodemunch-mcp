@@ -661,9 +661,12 @@ def resolve_explicit_paths(
     when they live under ``walk_root`` and have a known language. Directories
     are recursed via ``discover_local_files`` against that subtree (so the
     same .gitignore / framework filter applies). Entries outside the root,
-    non-existent paths, symlink escapes, and oversize files are rejected
-    with per-entry warnings — matching the security posture of the full
-    walker.
+    non-existent paths, symlink escapes, oversize files, secret/credential
+    files, and binary files are rejected with per-entry warnings. The
+    security-relevant filters (symlink, secret, binary, size) mirror the full
+    walk; unlike the walk, explicit paths deliberately opt past gitignore and
+    skip-directory rules so a caller can name a generated/ignored source file
+    on purpose (e.g. ``index_dependency`` indexing a ``dist/`` snapshot).
 
     Used by ``index_folder(paths=...)`` so agents can re-index exactly the
     files they already know about (git-diff list, edited-files list,
@@ -736,6 +739,18 @@ def resolve_explicit_paths(
             skip_counts["symlink"] = skip_counts.get("symlink", 0) + 1
             continue
 
+        # Secret-file detection — mirrors _should_index_file step 10. Without
+        # this, an explicitly-listed credential file (.env, *.pem,
+        # secrets/*.yaml, credentials.json) was indexed and later served
+        # unredacted by the source-dump tools, while the full walk refused it.
+        # The explicit-paths branch must apply the same secret filter the walk
+        # does; it intentionally still opts past gitignore/skip-dir so callers
+        # can name generated/ignored source files on purpose.
+        if is_secret_file(_rel):
+            warnings.append(f"Skipped secret file: {_rel}")
+            skip_counts["secret"] = skip_counts.get("secret", 0) + 1
+            continue
+
         if get_language_for_path(str(p)) is None and p.suffix not in LANGUAGE_EXTENSIONS:
             warnings.append(f"Skipped unsupported extension: {raw!r}")
             skip_counts["unknown_extension"] = skip_counts.get("unknown_extension", 0) + 1
@@ -748,6 +763,12 @@ def resolve_explicit_paths(
                 continue
         except OSError as e:
             warnings.append(f"Skipped stat-error path {raw!r}: {e}")
+            continue
+
+        # Binary detection — mirrors _should_index_file step 13.
+        if is_binary_file(p):
+            warnings.append(f"Skipped binary file: {_rel}")
+            skip_counts["binary"] = skip_counts.get("binary", 0) + 1
             continue
 
         pr = p.resolve()

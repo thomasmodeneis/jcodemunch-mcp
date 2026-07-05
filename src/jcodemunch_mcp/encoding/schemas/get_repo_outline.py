@@ -1,34 +1,41 @@
-"""Compact encoder for get_repo_outline — biggest savings target (repo topology)."""
+"""Compact encoder for get_repo_outline — repo topology overview.
+
+The tool emits its directory and symbol-kind breakdowns as **dicts**
+(`{path: count}` / `{kind: count}`) and the most-imported / most-central
+lists as lists of dicts, plus a few scalars. Those structured fields are
+carried as JSON blobs so the payload round-trips losslessly.
+
+Earlier versions of this schema declared a `files` table the tool never
+produces (which re-materialised as a phantom `files: []` on decode) and
+modelled `directories` as a list-of-dict table though the tool returns a
+dict (which decoded to an empty list), while `symbol_kinds`,
+`most_imported_files`, and `most_central_symbols` were absent from the
+schema entirely and dropped. Under the default `server_output=adaptive`
+path the lossy compact form shipped precisely because discarding that data
+cleared the savings gate. Carrying the real fields as JSON blobs keeps the
+payload complete; when the compact form no longer beats JSON by the gate
+threshold the dispatcher simply falls back to JSON, which is correct.
+"""
 
 from .. import schema_driven as sd
 
 TOOLS = ("get_repo_outline",)
 ENCODING_ID = "ro1"
 
-_TABLES = [
-    sd.TableSpec(
-        key="files",
-        tag="f",
-        cols=["file", "language", "symbol_count", "line_count", "summary"],
-        intern=["file"],
-        types={"symbol_count": "int", "line_count": "int"},
-    ),
-    sd.TableSpec(
-        key="directories",
-        tag="d",
-        cols=["path", "file_count", "summary"],
-        intern=["path"],
-        types={"file_count": "int"},
-    ),
-]
+# No tables: directories/symbol_kinds are dicts (not list-of-dict), and the
+# two list fields are optional, so JSON blobs preserve both shape and
+# optional-key presence exactly (a table would inject `key: []` when absent).
+_TABLES: list = []
 _SCALARS = (
-    "repo", "source_root", "language", "file_count", "symbol_count",
-    "indexed_at", "git_head", "display_name", "staleness_warning",
+    "repo", "indexed_at", "file_count", "symbol_count", "staleness_warning",
 )
 _META = (
     "timing_ms", "tokens_saved", "total_tokens_saved", "is_stale",
 )
-_JSON = ("languages", "tree", "stats")
+_JSON = (
+    "languages", "directories", "symbol_kinds",
+    "most_imported_files", "most_central_symbols",
+)
 
 
 def encode(tool: str, response: dict) -> tuple[str, str]:

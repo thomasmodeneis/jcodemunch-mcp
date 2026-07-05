@@ -2,6 +2,65 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.97] - 2026-07-05 - Security: explicit-paths refuses credential/binary files; get_repo_outline compact encoding no longer drops data; network-disclosure accuracy
+
+### Fixed
+
+- **`get_repo_outline` no longer silently drops most of its payload on the
+  default (compact) path.** The `ro1` compact encoder was written against a
+  response shape the tool never produces: it declared a `files` table the tool
+  never emits (which re-materialised as a phantom `files: []` on decode) and
+  modelled `directories` as a list-of-dict table though the tool returns a dict
+  (which decoded to an empty list), while `symbol_kinds`, `most_imported_files`,
+  and `most_central_symbols` were absent from the schema entirely and dropped.
+  Under the default `server_output=adaptive` path the lossy compact form
+  shipped precisely because discarding that data cleared the 15%-savings gate,
+  so an agent received a repo orientation indistinguishable from a genuinely
+  empty repo. The schema now carries the directory/symbol-kind histograms and
+  the most-imported/most-central lists as JSON blobs, so the payload
+  round-trips losslessly; when the compact form no longer beats JSON by the
+  gate threshold the dispatcher falls back to JSON (correct — the previous
+  "savings" were the dropped data). New/expanded round-trip tests in
+  `tests/encoding/test_tier1_roundtrip.py` now assert against the tool's real
+  producer shape (the old fixture fed a fabricated `files` table, which is why
+  the drop went uncaught) plus a default-path no-data-loss guard. No
+  `INDEX_VERSION` bump; a re-index is not required (encoding is response-time).
+
+- **`index_folder(paths=[...])` now refuses secret/credential files**, closing
+  a gap where an explicitly-listed credential file (`.env`, `*.pem`,
+  `secrets/*.yaml`, `credentials.json`) was indexed and then served back
+  unredacted by the source-dump tools (`get_file_content`, `get_symbol_source`,
+  `get_context_bundle`, which are exempt from response redaction on the
+  assumption that index-time exclusion already fired). The full directory walk
+  already refused these via `is_secret_file`, but the explicit-paths branch
+  (`resolve_explicit_paths`) checked only symlink/extension/size and never the
+  secret filter — so any `paths=[...]` call (git-diff list, edited-files list,
+  `rg`-matched list) that happened to name a credential file leaked it into the
+  index and the model context. The explicit branch now applies the same
+  `is_secret_file` and `is_binary_file` checks the full walk does, reporting
+  `skip_counts["secret"]` / `skip_counts["binary"]` and a per-entry warning.
+  Explicit paths still deliberately opt past `.gitignore` and skip-directory
+  rules (so callers can name generated/ignored source on purpose, e.g.
+  `index_dependency` indexing a `dist/` snapshot); only the security-relevant
+  filters were added. New regression tests in `tests/test_v1_108_0.py`
+  (`test_secret_file_in_paths_rejected`, `test_secret_symbols_never_reach_index_via_paths`).
+  No `INDEX_VERSION` bump.
+
+### Changed
+
+- **README "Background behavior, fully disclosed" now enumerates the
+  user-invoked network calls.** The section — the designated PyPI-compliance
+  surface — listed only telemetry/watch/hooks/journal and closed with a blanket
+  "the base package makes no other network calls," but three base-package
+  (non-extra; `httpx` is a core dependency) commands do reach the network when
+  you run them: license validation (`license` / `org-rollup` /
+  `install-pack --license` → `validate.php` on `j.gravelle.us`), starter-pack
+  catalog/download (`install-pack` → `j.gravelle.us`), and the embedding-model
+  download (`download-model` / first semantic encode → `huggingface.co`). All
+  are user-invoked, none run in the background, but the disclosure now names
+  them and the closing sentence is scoped to "beyond the user-invoked calls
+  listed above." Documentation only — no behavior change.
+
 ## [1.108.96] - 2026-07-04 - Compile-time evidence: `import-scip` brings compiler-verified cross-references
 
 ### Added

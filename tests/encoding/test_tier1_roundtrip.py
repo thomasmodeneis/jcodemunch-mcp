@@ -467,20 +467,67 @@ def test_get_file_outline_batch_round_trip():
 
 
 def test_get_repo_outline_round_trip():
+    # Mirror the ACTUAL producer shape (tools/get_repo_outline.py): directories
+    # and symbol_kinds are DICTs, most_imported_files/most_central_symbols are
+    # lists of dicts, and there is no `files` table. A schema modelled against a
+    # fabricated shape silently drops these on the default path (regression: the
+    # old fixture fed a `files` table the tool never produces, so the drop went
+    # uncaught).
     resp = {
         "repo": "acme/app",
-        "source_root": "/tmp/app",
-        "file_count": 2,
-        "symbol_count": 4,
-        "files": [
-            {"file": "a.py", "language": "python", "symbol_count": 2, "line_count": 30, "summary": "foo"},
-            {"file": "b.py", "language": "python", "symbol_count": 2, "line_count": 40, "summary": "bar"},
+        "indexed_at": "2026-07-05T10:00:00",
+        "file_count": 400,
+        "symbol_count": 3771,
+        "languages": {"python": 300, "javascript": 100},
+        "directories": {"src/": 400, "tests/": 120, "docs/": 8},
+        "symbol_kinds": {"function": 2100, "class": 400, "method": 1200, "constant": 71},
+        "most_imported_files": [
+            {"file": "src/core/base.py", "imported_by": 42},
+            {"file": "src/util/log.py", "imported_by": 30},
+        ],
+        "most_central_symbols": [
+            {"symbol_id": "src/core/base.py::Base#class", "score": 0.014212, "kind": "class"},
+            {"symbol_id": "src/util/log.py::log#function", "score": 0.009901, "kind": "function"},
         ],
         "_meta": {"timing_ms": 2.0, "is_stale": False},
     }
     out = _rt("get_repo_outline", resp)
-    assert len(out["files"]) == 2
-    assert out["files"][0]["language"] == "python"
+    # Every structured field must survive the compact round-trip losslessly.
+    for key in ("languages", "directories", "symbol_kinds",
+                "most_imported_files", "most_central_symbols"):
+        assert out.get(key) == resp[key], f"{key} did not round-trip: {out.get(key)!r}"
+    assert out["file_count"] == 400
+    assert out["symbol_count"] == 3771
+    # No phantom `files` key injected by a bogus table declaration.
+    assert "files" not in out
+
+
+def test_get_repo_outline_default_path_never_drops_data():
+    """The default adaptive (`auto`) path must never drop repo-outline data,
+    whether it ships compact ro1 or falls back to JSON. Regression for V4:
+    the lossy encoder shipped on the default path because discarding
+    directories/symbol_kinds/most_* cleared the savings gate."""
+    resp = {
+        "repo": "acme/app",
+        "indexed_at": "2026-07-05T10:00:00",
+        "file_count": 400,
+        "symbol_count": 3771,
+        "languages": {"python": 300},
+        "directories": {"src/": 400, "tests/": 120},
+        "symbol_kinds": {"function": 2100, "class": 400},
+        "most_imported_files": [{"file": "src/core/base.py", "imported_by": 42}],
+        "most_central_symbols": [
+            {"symbol_id": "src/core/base.py::Base#class", "score": 0.0142, "kind": "class"},
+        ],
+        "_meta": {"timing_ms": 2.0, "is_stale": False},
+    }
+    payload, meta = encode_response("get_repo_outline", dict(resp), "auto")
+    out = decode(payload) if isinstance(payload, str) else payload
+    for key in ("languages", "directories", "symbol_kinds",
+                "most_imported_files", "most_central_symbols"):
+        assert out.get(key) == resp[key], (
+            f"{key} lost on default path (encoding={meta.get('encoding')}): {out.get(key)!r}"
+        )
 
 
 @pytest.mark.parametrize("tool,resp", [
