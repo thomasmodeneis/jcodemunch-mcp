@@ -2,6 +2,37 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.99] - 2026-07-05 - Audit P2: fusion embedding channel revived; retrieval confidence now graded
+
+### Fixed
+
+- **`search_symbols(fusion=True)` now actually uses the embedding similarity
+  channel.** The channel had three stacked construction bugs — `EmbeddingStore`
+  called with a `base_path=` kwarg it doesn't accept, `get_all(owner, name)`
+  called on a zero-arg method, and an import of `_embed_texts` (the real export
+  is `embed_texts`) — each of which raised, all swallowed by a bare
+  `except Exception: pass`. So fusion ranking silently ran on
+  lexical+identity+structural only, never the embedding signal, even with
+  embeddings fully populated, and it still recorded `semantic_used=True` in the
+  ranking ledger (poisoning the weight-tuner's semantic-vs-nonsemantic
+  comparison). The channel now mirrors the semantic path's working
+  `EmbeddingStore(db_path)` + `get_all()` + `embed_texts` usage, records
+  `semantic_used` only when embeddings actually contributed, and logs (instead
+  of silently swallowing) when the channel is unavailable.
+
+- **`_meta.confidence` on `search_symbols` is now graded instead of a
+  near-constant.** Result entries carried a `score` field only under
+  `debug=True`, so `compute_confidence` took its no-score neutral early-return
+  and every non-empty search reported ~0.584 (fresh) / ~0.54 (stale) regardless
+  of result quality — which also meant the low-confidence retrieval-regret
+  signal (threshold 0.30) and the weight-tuner's confidence-delta (0.05) could
+  never fire. All three ranking paths (lexical, semantic, fusion) now pass the
+  real ranking scores to `compute_confidence` and `extract_ledger_features`
+  (kept separate from the response entries, so the wire shape is unchanged), so
+  a dominant match scores high and a diffuse one scores low, and the ledger
+  records real top1/top2 scores. New tests in `tests/test_v1_108_99.py`. No
+  `INDEX_VERSION` bump.
+
 ## [1.108.98] - 2026-07-05 - Audit P2 batch 1: config keys honored at serve; MUNCH legend no longer corrupts `@digit` values
 
 ### Fixed
