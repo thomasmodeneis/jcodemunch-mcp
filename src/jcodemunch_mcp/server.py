@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import IO, Any, Optional
 
 from mcp.server import Server
-from mcp.types import Tool, TextContent, Resource, Prompt, PromptMessage, GetPromptResult, CallToolResult
+from mcp.types import Tool, ToolAnnotations, TextContent, Resource, Prompt, PromptMessage, GetPromptResult, CallToolResult
 
 from . import __version__
 from . import config as config_module
@@ -938,6 +938,47 @@ async def list_tools() -> list[Tool]:
     """List all available tools."""
     _signal_handshake()
     return _build_tools_list()
+
+
+# --- MCP read-only annotations --------------------------------------------- #
+# Claude Code's plan mode prompts for approval on every tool it cannot prove is
+# read-only. jcm is read-only by charter, so annotate each tool with
+# ToolAnnotations(readOnlyHint=...) and plan mode runs the query tools silently
+# while still gating the handful that mutate index/session/config state.
+#
+# The write-set is derived from the authoritative counter.STATE_CHANGING_ACTIONS
+# so it can't drift from source. Two names are added on top:
+#   * index_dependency — a real write tool (snapshots + reindexes) that is
+#     missing from counter.STATE_CHANGING_ACTIONS (latent gap in that set).
+#   * order / route — the counter front door can dispatch a state-changing
+#     action, so they are not read-only. (menu stays read-only.)
+_NON_READONLY_TOOLS: frozenset[str] = _counter.STATE_CHANGING_ACTIONS | {
+    "index_dependency",
+    "order",
+    "route",
+}
+
+
+def _apply_readonly_annotations(tools: list[Tool]) -> list[Tool]:
+    """Attach ToolAnnotations(readOnlyHint=...) to any tool lacking annotations.
+
+    Read tools (readOnlyHint=True) run silently in Claude Code plan mode; the
+    write-set (_NON_READONLY_TOOLS) is marked readOnlyHint=False so those still
+    prompt. Tools that already carry annotations are left untouched. Returns a
+    new list; input Tool objects are copied (model_copy) rather than mutated.
+    """
+    annotated: list[Tool] = []
+    for tool in tools:
+        if tool.annotations is None:
+            tool = tool.model_copy(
+                update={
+                    "annotations": ToolAnnotations(
+                        readOnlyHint=tool.name not in _NON_READONLY_TOOLS
+                    )
+                }
+            )
+        annotated.append(tool)
+    return annotated
 
 
 def _build_tools_list() -> list[Tool]:
@@ -3779,7 +3820,7 @@ def _build_tools_list() -> list[Tool]:
         keep = _COUNTER_FRONT_DOOR | _ALWAYS_PRESENT_TOOLS
         tools = [t for t in all_tools if t.name in keep]
         _apply_description_overrides(tools)
-        return tools
+        return _apply_readonly_annotations(tools)
     # Non-counter surfaces keep existing behavior byte-for-byte: the front-door
     # tools stay hidden (still callable via call_tool), so 'full' and the
     # existing tiers are unchanged on upgrade.
@@ -3840,7 +3881,7 @@ def _build_tools_list() -> list[Tool]:
     # Merge descriptions from config (runs after disabled_tools filter)
     _apply_description_overrides(tools)
 
-    return tools
+    return _apply_readonly_annotations(tools)
 
 
 def _apply_description_overrides(tools: list) -> None:
