@@ -2,6 +2,20 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.100] - 2026-07-05 - Fix latent NameError in the v1.108.99 fusion similarity error path
+
+### Fixed
+
+- **`search_symbols(fusion=True)` no longer risks a `NameError` when the
+  embedding similarity channel fails with embeddings present.** The v1.108.99
+  revival of that channel logged failures via `_logger`, but `_logger` is
+  defined locally in the semantic path, not in `_search_symbols_fusion`, so if
+  the channel raised (repo has embeddings but the provider errors) the `except`
+  handler itself would raise `NameError` and crash the call instead of degrading
+  gracefully. The no-embeddings case never enters the handler, which is why it
+  went unnoticed by tests but was caught by the ruff lint gate in CI. The
+  handler now uses a local `logging.getLogger(__name__)`.
+
 ## [1.108.99] - 2026-07-05 - Audit P2: fusion embedding channel revived; retrieval confidence now graded
 
 ### Fixed

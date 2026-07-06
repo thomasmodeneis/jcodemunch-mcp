@@ -1455,7 +1455,10 @@ def _search_symbols_fusion(
                     channels.append(sim_ch)
                     similarity_used = True
     except Exception:
-        _logger.debug("fusion similarity channel unavailable", exc_info=True)
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "fusion similarity channel unavailable", exc_info=True
+        )
 
     # Fuse
     fused = fuse(channels, smoothing=smoothing, weights=weights)
