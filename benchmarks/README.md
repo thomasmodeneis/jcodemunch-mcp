@@ -84,10 +84,20 @@ If you publish results against this corpus, open an issue or PR and we'll link t
 - **`benchmarks/replay/`** — replayable retrieval-quality benchmark.
   Fixtures pin `(query, expected_top_k_ids)` tuples; the harness runs
   each query through `search_symbols` and reports nDCG@k, MRR@k, and
-  Recall@k. CI gate: `run_replay.py --baseline X.Y.Z --gate 0.02` exits
-  non-zero if any aggregate metric drops by more than 2% vs the saved
-  baseline. The shipped `self_v1_75_0` fixture is locked at 1.0 across
-  all metrics — every release runs against it.
+  Recall@k. **Wired into CI** as the `Replay` workflow
+  (`.github/workflows/replay.yml`): every push to `main` and every PR
+  indexes the repo and runs
+  `run_replay.py --fixture … --repo <indexed-id>
+  --baseline-file results/self_v1_75_0-golden.json --gate 0.02`, which
+  exits non-zero if any aggregate metric drops more than 2% (relative)
+  below the committed golden baseline. This is the regression gate that
+  lets ranking-affecting changes (fusion weights, BM25 normalization,
+  parser extraction) land with a proof they did not degrade retrieval.
+  The `self_v1_75_0` fixture is locked at 1.0 across all metrics; update
+  `self_v1_75_0-golden.json` (via `--write-result`) only on a deliberate,
+  reviewed ranking change. Pass `--repo` to override the fixture's
+  machine-specific repo id; `--baseline X.Y.Z` still gates against a
+  version-pinned `results/{fixture}-v{X.Y.Z}.json` snapshot.
 - **`benchmarks/token_baselines/`** — per-release token-savings + latency
   snapshots. `capture_token_baseline.py` reads
   the live session's `get_session_stats` + `latency_stats` and writes

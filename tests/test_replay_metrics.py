@@ -143,3 +143,42 @@ class TestSelfFixtureBaseline:
         assert data["overall"]["ndcg"] == 1.0
         assert data["overall"]["mrr"] == 1.0
         assert data["overall"]["recall"] == 1.0
+
+
+_GOLDEN = (
+    Path(__file__).resolve().parents[1]
+    / "benchmarks" / "replay" / "results" / "self_v1_75_0-golden.json"
+)
+
+
+class TestReplayGate:
+    """The golden baseline + the --baseline-file gate the CI Replay workflow uses."""
+
+    def test_golden_baseline_committed_and_perfect(self):
+        assert _GOLDEN.exists(), "the CI replay gate references this committed golden baseline"
+        data = json.loads(_GOLDEN.read_text())
+        for m in ("ndcg", "mrr", "recall"):
+            assert data["overall"][m] == 1.0
+
+    def test_gate_fails_on_regression(self):
+        import run_replay
+        base = json.loads(_GOLDEN.read_text())["overall"]
+        # A result 5% below the golden nDCG must trip the 2% gate.
+        regressed = {"overall": dict(base, ndcg=base["ndcg"] * 0.95)}
+        passed, reasons = run_replay._check_gate(regressed, _GOLDEN, 0.02)
+        assert not passed
+        assert any("ndcg" in r for r in reasons), reasons
+
+    def test_gate_passes_when_metrics_hold(self):
+        import run_replay
+        base = json.loads(_GOLDEN.read_text())["overall"]
+        passed, _ = run_replay._check_gate({"overall": dict(base)}, _GOLDEN, 0.02)
+        assert passed
+
+    def test_gate_skips_gracefully_when_baseline_missing(self, tmp_path):
+        import run_replay
+        passed, reasons = run_replay._check_gate(
+            {"overall": {"ndcg": 1.0}}, tmp_path / "nope.json", 0.02,
+        )
+        assert passed
+        assert any("not found" in r for r in reasons)

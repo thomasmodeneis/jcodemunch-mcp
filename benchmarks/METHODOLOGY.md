@@ -133,11 +133,14 @@ The harness (`run_replay.py`) runs each query through `search_symbols`,
 computes per-query and aggregate metrics, and optionally writes
 `benchmarks/replay/results/{fixture}-v{VERSION}.json`.
 
-A regression gate (`--baseline X.Y.Z --gate 0.02`) fails the run if any
-aggregate metric drops by more than 2% vs the saved baseline. The
-shipped `self_v1_75_0` fixture is locked at 1.0 nDCG/MRR/Recall — every
-release in v1.76.0+ runs against it as a CI guard. See the
-`benchmarks/replay/` source for details.
+A regression gate (`--baseline-file results/self_v1_75_0-golden.json
+--gate 0.02`, or the version-pinned `--baseline X.Y.Z`) fails the run if
+any aggregate metric drops by more than 2% vs the baseline. The shipped
+`self_v1_75_0` fixture is locked at 1.0 nDCG/MRR/Recall. This gate is
+wired into CI as the `Replay` workflow (`.github/workflows/replay.yml`),
+so every push to `main` and every pull request runs it against the
+committed golden baseline. See the `benchmarks/replay/` source for
+details.
 
 ## Common Misreadings
 

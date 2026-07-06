@@ -63,9 +63,18 @@ def _run_query(repo: str, query: str, k: int, storage_path: str | None) -> list[
     return [r.get("id", r.get("symbol_id", "")) for r in out.get("results", [])]
 
 
-def run_fixture(fixture_path: Path, *, k: int = 10, storage_path: str | None = None) -> dict:
+def run_fixture(
+    fixture_path: Path,
+    *,
+    k: int = 10,
+    storage_path: str | None = None,
+    repo_override: str | None = None,
+) -> dict:
     fixture = json.loads(fixture_path.read_text())
-    repo = fixture["repo"]
+    # The fixture's repo id is a hash of the absolute index path, which differs
+    # across machines (e.g. a CI runner). The queries and expected symbol ids are
+    # repo-relative and portable, so a caller can override just the container id.
+    repo = repo_override or fixture["repo"]
     queries = fixture.get("queries", [])
     per_query: list[dict] = []
     for entry in queries:
@@ -124,10 +133,22 @@ def main() -> int:
     parser.add_argument("--k", type=int, default=10)
     parser.add_argument("--storage-path", default=None)
     parser.add_argument(
+        "--repo",
+        default=None,
+        help="Override the fixture's repo id (its id is a hash of the absolute "
+             "index path, so it differs per machine; queries stay portable).",
+    )
+    parser.add_argument(
         "--baseline",
         default=None,
         help="Compare against benchmarks/replay/results/{fixture}-v{X}.json; "
              "exit non-zero on regression > --gate.",
+    )
+    parser.add_argument(
+        "--baseline-file",
+        default=None,
+        help="Compare against an explicit committed baseline JSON (version-neutral, "
+             "for a stable CI gate); takes precedence over --baseline.",
     )
     parser.add_argument("--gate", type=float, default=0.02, help="Allowed relative regression (default 2%%)")
     parser.add_argument(
@@ -138,7 +159,9 @@ def main() -> int:
     args = parser.parse_args()
 
     fixture_path = Path(args.fixture).resolve()
-    result = run_fixture(fixture_path, k=args.k, storage_path=args.storage_path)
+    result = run_fixture(
+        fixture_path, k=args.k, storage_path=args.storage_path, repo_override=args.repo,
+    )
 
     print(json.dumps(result["overall"], indent=2))
 
@@ -149,8 +172,12 @@ def main() -> int:
         out_path.write_text(json.dumps(result, indent=2) + "\n")
         print(f"\nwrote {out_path.relative_to(REPO_ROOT)}")
 
-    if args.baseline:
-        bp = _baseline_path(args.baseline, result["fixture"])
+    if args.baseline_file or args.baseline:
+        bp = (
+            Path(args.baseline_file).resolve()
+            if args.baseline_file
+            else _baseline_path(args.baseline, result["fixture"])
+        )
         passed, reasons = _check_gate(result, bp, args.gate)
         for r in reasons:
             print(("PASS: " if passed else "FAIL: ") + r)
