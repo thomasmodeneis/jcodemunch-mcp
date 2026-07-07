@@ -31,6 +31,7 @@ _IMPORT_PATTERNS = {
     "tsx": re.compile(r"^\s*(import\s|const\s+\w+\s*=\s*require\()"),
     "jsx": re.compile(r"^\s*(import\s|const\s+\w+\s*=\s*require\()"),
     "vue": re.compile(r"^\s*(import\s|const\s+\w+\s*=\s*require\()"),
+    "svelte": re.compile(r"^\s*(import\s|const\s+\w+\s*=\s*require\()"),
     "rust": re.compile(r"^\s*use\s"),
     "go": re.compile(r"^\s*import\s"),
     "java": re.compile(r"^\s*import\s+(static\s+)?[\w.]+\s*;?$"),
@@ -170,8 +171,9 @@ _DEF_PATTERNS = {
     "nix": re.compile(r"^\s*{name}\s*="),
     "ejs": re.compile(r"<%[=-]?\s*(?:function|const\s+{name})"),
     "verse": re.compile(r"^\s*(?:class|function|agent|device)\s+{name}\b"),
-    # -- Tier 3: vue and asm (vue uses JS/TS patterns, asm labels) --
+    # -- Tier 3: vue, svelte and asm (vue/svelte use JS/TS patterns, asm labels) --
     "vue": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}\b"),
+    "svelte": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}\b"),
     "asm": re.compile(r"^\s*{name}\s*:"),
 }
 
@@ -1089,7 +1091,7 @@ def _format_import_line(imp_dict, language):
         if names:
             return f"from {spec} import {', '.join(names)}"
         return f"import {spec}"
-    elif language in ("typescript", "javascript", "tsx", "jsx", "vue"):
+    elif language in ("typescript", "javascript", "tsx", "jsx", "vue", "svelte"):
         if names:
             return f"import {{ {', '.join(names)} }} from '{spec}';"
         return f"import '{spec}';"

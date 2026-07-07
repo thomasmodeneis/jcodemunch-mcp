@@ -259,7 +259,7 @@ def extract_root_package_from_specifier(specifier: str, language: str) -> str:
         parts = stripped.split(".")
         return parts[0]
 
-    elif lang in ("javascript", "typescript", "tsx", "jsx", "vue", "astro"):
+    elif lang in ("javascript", "typescript", "tsx", "jsx", "vue", "astro", "svelte"):
         # Relative imports
         if specifier.startswith(".") or specifier.startswith(".."):
             return ""
@@ -456,7 +456,7 @@ def _find_entry_point(source_files: list[str], language: str) -> Optional[str]:
 
     if lang in ("python",):
         patterns = ["__init__.py", "main.py", "app.py"]
-    elif lang in ("javascript", "typescript", "tsx", "jsx", "vue", "astro"):
+    elif lang in ("javascript", "typescript", "tsx", "jsx", "vue", "astro", "svelte"):
         patterns = [
             "index.js", "index.ts", "index.tsx", "index.jsx",
             "main.js", "main.ts", "src/index.js", "src/index.ts",

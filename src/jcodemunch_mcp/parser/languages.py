@@ -106,6 +106,7 @@ LANGUAGE_EXTENSIONS = {
     ".bash": "bash",
     ".nix": "nix",
     ".vue": "vue",
+    ".svelte": "svelte",
     ".ejs": "ejs",
     ".verse": "verse",
     ".lua": "lua",
@@ -1083,6 +1084,28 @@ VUE_SPEC = LanguageSpec(
 )
 
 
+# NOTE: .svelte files are Svelte single-file components — <script> (instance +
+# optional module) + optional <style> + HTML-like markup, the same shape as a
+# Vue SFC.  The bundled tree-sitter `svelte` grammar produces the same node
+# structure as Vue (document → script_element → start_tag/raw_text/end_tag),
+# so extraction is handled by _parse_svelte_symbols() in extractor.py, which
+# re-parses each <script> block's raw_text with the JS/TS parser (mirroring
+# _parse_vue_symbols).  The empty node-map fields below signal "custom parser",
+# matching the VUE_SPEC / ASTRO_SPEC convention.
+SVELTE_SPEC = LanguageSpec(
+    ts_language="svelte",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
 # Verse (UEFN) specification
 # NOTE: No tree-sitter grammar exists for Epic's Verse language.
 # Symbol extraction is performed by _parse_verse_symbols() in extractor.py
@@ -1951,6 +1974,7 @@ LANGUAGE_REGISTRY = {
     "bash": BASH_SPEC,
     "nix": NIX_SPEC,
     "vue": VUE_SPEC,
+    "svelte": SVELTE_SPEC,
     "ejs": EJS_SPEC,
     "verse": VERSE_SPEC,
     "lua": LUA_SPEC,

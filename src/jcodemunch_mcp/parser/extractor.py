@@ -254,6 +254,8 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
         symbols = _parse_nix_symbols(source_bytes, filename)
     elif language == "vue":
         symbols = _parse_vue_symbols(source_bytes, filename)
+    elif language == "svelte":
+        symbols = _parse_svelte_symbols(source_bytes, filename)
     elif language == "ejs":
         symbols = _parse_ejs_symbols(source_bytes, filename)
     elif language == "verse":
@@ -3816,6 +3818,311 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         _walk_options(sub_tree.root_node)
         if len(symbols) == 1:  # only component sym found → try composition
             _walk_composition(sub_tree.root_node)
+
+    return symbols
+
+
+# Svelte 5 runes — magic $-prefixed compiler functions.  A rune call on the RHS
+# of a declaration marks reactive state / props (surfaced as kind=constant).
+_SVELTE_RUNES = frozenset({
+    "$state", "$derived", "$props", "$bindable",
+    "$effect", "$inspect", "$host",
+})
+
+
+def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
+    """Extract symbols from Svelte single-file components (.svelte).
+
+    Mirrors _parse_vue_symbols: the bundled tree-sitter ``svelte`` grammar
+    produces the same ``document → script_element → start_tag/raw_text/end_tag``
+    structure as Vue, so each ``<script>`` block's ``raw_text`` is re-parsed with
+    the JS/TS parser and walked for top-level declarations.
+
+    Surfaces (all parented to a synthetic component symbol):
+      - Component name from filename (kind=class)
+      - top-level function / class / interface|type|enum declarations
+      - Svelte 5 runes: ``let x = $state(...)`` / ``$derived(...)`` → kind=constant,
+        plus destructured ``let { a, b } = $props()`` → each name (kind=constant)
+      - Svelte 4 props: ``export let name`` / ``export const x`` → kind=constant
+      - Svelte 4 reactive labels: ``$: doubled = count * 2`` → kind=constant
+
+    Svelte allows an instance ``<script>`` plus a module
+    ``<script context="module">`` / ``<script module>``; both blocks are parsed,
+    each with its own line offset.  Line numbers are offset to match positions in
+    the original ``.svelte`` file (line-based offsets, no byte_offset/content_hash,
+    exactly like Vue).
+    """
+    from pathlib import Path as _Path
+
+    from tree_sitter_language_pack import get_parser as _get_parser
+
+    svelte_parser = _get_parser("svelte")
+    tree = svelte_parser.parse(source_bytes)
+
+    # Every top-level <script> element (instance + optional module block).
+    script_nodes = [c for c in tree.root_node.children if c.type == "script_element"]
+    if not script_nodes:
+        return []
+
+    # Component name from filename (Svelte convention: filename = component name).
+    component_name = _Path(filename).stem
+    symbols: list[Symbol] = []
+
+    # Synthetic component symbol (kind=class, line=1).
+    comp_sym = Symbol(
+        id=make_symbol_id(filename, component_name, "class"),
+        name=component_name,
+        qualified_name=component_name,
+        kind="class",
+        language="svelte",
+        file=filename,
+        line=1,
+        end_line=source_bytes.count(b"\n") + 1,
+        signature=f"component {component_name}",
+        docstring="",
+        summary="",
+    )
+    symbols.append(comp_sym)
+
+    def _script_lang(script_node) -> str:
+        """Detect the script language from a lang="ts"/"tsx" attribute."""
+        lang = "javascript"
+        start_tag = next((c for c in script_node.children if c.type == "start_tag"), None)
+        if start_tag:
+            for attr in start_tag.children:
+                if attr.type != "attribute":
+                    continue
+                attr_text = source_bytes[attr.start_byte:attr.end_byte].decode("utf-8", errors="replace")
+                if 'lang="ts"' in attr_text or "lang='ts'" in attr_text:
+                    return "typescript"
+                if 'lang="tsx"' in attr_text or "lang='tsx'" in attr_text:
+                    return "tsx"
+        return lang
+
+    def _parse_block(raw_node, lang: str) -> None:
+        """Re-parse one <script> block's raw_text with the JS/TS parser and walk it."""
+        script_bytes = source_bytes[raw_node.start_byte:raw_node.end_byte]
+        line_offset = raw_node.start_point[0]  # rows are 0-based
+
+        sub_parser = _get_parser(lang if lang != "tsx" else "typescript")
+        sub_tree = sub_parser.parse(script_bytes)
+
+        def _node_text(n) -> str:
+            return script_bytes[n.start_byte:n.end_byte].decode("utf-8", errors="replace")
+
+        def _preceding_comment(n) -> str:
+            """Return preceding // or /* */ comment text as docstring."""
+            parent = n.parent
+            if parent is None:
+                return ""
+            prev = None
+            for c in parent.children:
+                if c.id == n.id:
+                    break
+                if c.type in ("comment", "template_substitution"):
+                    prev = c
+                elif c.type not in (",", "\n", " "):
+                    prev = None
+            if prev and prev.type == "comment":
+                txt = _node_text(prev).strip()
+                return txt.lstrip("/").lstrip("*").strip()
+            return ""
+
+        def _adjusted_line(n) -> int:
+            return n.start_point[0] + line_offset + 1  # 1-based
+
+        def _adjusted_end_line(n) -> int:
+            return n.end_point[0] + line_offset + 1
+
+        def _first_line(n) -> str:
+            return _node_text(n).split("\n")[0].rstrip("{").strip()
+
+        def _rune_name(call_node) -> Optional[str]:
+            """Return the rune ($state/$derived/...) a call resolves to, else None.
+
+            Strips a trailing ``.by`` / ``.raw`` member ($derived.by, $state.raw)
+            plus any generic/argument suffix from the callee text.
+            """
+            if call_node is None or call_node.type not in ("call_expression", "await_expression"):
+                return None
+            func = call_node.child_by_field_name("function") or (
+                call_node.children[0] if call_node.children else None
+            )
+            if func is None:
+                return None
+            name = _node_text(func).split("(")[0].split("<")[0].strip()
+            if "." in name:  # $derived.by / $state.raw → base rune
+                name = name.split(".")[0]
+            return name if name in _SVELTE_RUNES else None
+
+        def _destructured_names(obj_pattern) -> list[str]:
+            """Named props from an object-destructuring pattern (`let { a, b=1 } = $props()`)."""
+            out: list[str] = []
+            for c in obj_pattern.children:
+                if c.type == "shorthand_property_identifier_pattern":
+                    out.append(_node_text(c))
+                elif c.type == "object_assignment_pattern":
+                    left = c.child_by_field_name("left") or (c.children[0] if c.children else None)
+                    if left is not None and left.type == "shorthand_property_identifier_pattern":
+                        out.append(_node_text(left))
+                elif c.type == "pair_pattern":  # `name: local` → the prop name is the key
+                    key = c.child_by_field_name("key")
+                    if key is not None:
+                        out.append(_node_text(key).strip("\"'"))
+                # rest_pattern (...rest) is not a named prop → skip
+            return [n for n in out if n.isidentifier()]
+
+        def _emit_const(name: str, line_node, doc_node, signature: str) -> None:
+            symbols.append(Symbol(
+                id=make_symbol_id(filename, name, "constant"),
+                name=name,
+                qualified_name=f"{component_name}.{name}",
+                kind="constant",
+                language="svelte",
+                file=filename,
+                line=_adjusted_line(line_node),
+                end_line=_adjusted_end_line(line_node),
+                signature=signature[:120],
+                docstring=_preceding_comment(doc_node),
+                summary="",
+                parent=comp_sym.id,
+            ))
+
+        def _walk(node):
+            if node.type == "class_declaration":
+                name_node = node.child_by_field_name("name")
+                if name_node:
+                    name = _node_text(name_node)
+                    symbols.append(Symbol(
+                        id=make_symbol_id(filename, name, "class"),
+                        name=name,
+                        qualified_name=name,
+                        kind="class",
+                        language="svelte",
+                        file=filename,
+                        line=_adjusted_line(node),
+                        end_line=_adjusted_end_line(node),
+                        signature=f"class {name}",
+                        docstring=_preceding_comment(node),
+                        summary="",
+                        parent=comp_sym.id,
+                    ))
+                return  # don't recurse into class body
+
+            elif node.type == "function_declaration":
+                name_node = node.child_by_field_name("name")
+                if name_node:
+                    name = _node_text(name_node)
+                    params = node.child_by_field_name("parameters")
+                    ret = node.child_by_field_name("return_type")
+                    sig = f"function {name}{_node_text(params) if params else '()'}"
+                    if ret:
+                        sig += _node_text(ret)
+                    symbols.append(Symbol(
+                        id=make_symbol_id(filename, name, "function"),
+                        name=name,
+                        qualified_name=f"{component_name}.{name}",
+                        kind="function",
+                        language="svelte",
+                        file=filename,
+                        line=_adjusted_line(node),
+                        end_line=_adjusted_end_line(node),
+                        signature=sig,
+                        docstring=_preceding_comment(node),
+                        summary="",
+                        parent=comp_sym.id,
+                    ))
+                # fall through to the recurse guard (won't recurse into the body)
+
+            elif node.type in ("interface_declaration", "type_alias_declaration", "enum_declaration"):
+                name_node = node.child_by_field_name("name")
+                if name_node:
+                    name = _node_text(name_node)
+                    symbols.append(Symbol(
+                        id=make_symbol_id(filename, name, "type"),
+                        name=name,
+                        qualified_name=name,
+                        kind="type",
+                        language="svelte",
+                        file=filename,
+                        line=_adjusted_line(node),
+                        end_line=_adjusted_end_line(node),
+                        signature=_node_text(node).split("{")[0].strip(),
+                        docstring=_preceding_comment(node),
+                        summary="",
+                        parent=comp_sym.id,
+                    ))
+                return
+
+            elif node.type == "export_statement":
+                # Svelte 4 props: `export let name` / `export const x = ...`
+                inner = next(
+                    (c for c in node.children if c.type in ("lexical_declaration", "variable_declaration")),
+                    None,
+                )
+                if inner is not None:
+                    for decl in inner.children:
+                        if decl.type != "variable_declarator":
+                            continue
+                        nn = decl.child_by_field_name("name")
+                        if nn is None or not _node_text(nn).isidentifier():
+                            continue
+                        _emit_const(_node_text(nn), decl, node, _first_line(node))
+                    return
+                # `export function` / `export class` → recurse so the declaration
+                # branch above handles the wrapped node.
+
+            elif node.type in ("lexical_declaration", "variable_declaration"):
+                # const/let declarations — capture Svelte-rune reactive state / props.
+                for decl in node.children:
+                    if decl.type != "variable_declarator":
+                        continue
+                    name_node = decl.child_by_field_name("name")
+                    val_node = decl.child_by_field_name("value")
+                    if name_node is None or val_node is None:
+                        continue
+                    rune = _rune_name(val_node)
+                    if rune is None:
+                        continue
+                    if name_node.type == "object_pattern":
+                        # `let { a, b } = $props()` → one constant per named prop
+                        for pname in _destructured_names(name_node):
+                            _emit_const(pname, decl, node, f"{pname} = {rune}()")
+                        continue
+                    name = _node_text(name_node)
+                    if name.isidentifier():
+                        _emit_const(name, decl, node, _first_line(node))
+
+            elif node.type == "labeled_statement":
+                # Svelte 4 reactive declaration: `$: doubled = count * 2`
+                label = node.children[0] if node.children else None
+                if label is not None and label.type == "statement_identifier" and _node_text(label) == "$":
+                    for stmt in node.children:
+                        if stmt.type != "expression_statement":
+                            continue
+                        for expr in stmt.children:
+                            if expr.type != "assignment_expression":
+                                continue
+                            left = expr.child_by_field_name("left") or (
+                                expr.children[0] if expr.children else None
+                            )
+                            if left is not None and left.type == "identifier":
+                                _emit_const(_node_text(left), node, node, _first_line(node))
+                return  # a reactive block's body is glue, not indexable declarations
+
+            # Recurse (but not into function bodies, to avoid inner helpers).
+            skip_recurse = node.type in ("function_declaration", "arrow_function", "function")
+            if not skip_recurse:
+                for child in node.children:
+                    _walk(child)
+
+        _walk(sub_tree.root_node)
+
+    for script_node in script_nodes:
+        raw_node = next((c for c in script_node.children if c.type == "raw_text"), None)
+        if raw_node is None:
+            continue
+        _parse_block(raw_node, _script_lang(script_node))
 
     return symbols
 

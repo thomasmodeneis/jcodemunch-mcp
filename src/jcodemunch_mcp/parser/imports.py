@@ -445,6 +445,17 @@ _VUE_TEMPLATE_COMPONENT = re.compile(
     re.MULTILINE,
 )
 
+# Svelte has no <template> wrapper, so component-usage scanning runs over the
+# whole file — but the <script> block is TypeScript, where generics like
+# `identity<T>()`, `Array<Item>`, `Writable<AppState>` would be misread as
+# `<T>` / `<Item>` / `<AppState>` component tags.  Strip <script>/<style> block
+# *contents* before the tag scan (their tag names are HTML-standard and filtered
+# anyway; only the inner text produces false positives).
+_SVELTE_SCRIPT_STYLE_BLOCK = re.compile(
+    r"<(script|style)\b[^>]*>.*?</\1\s*>",
+    re.DOTALL | re.IGNORECASE,
+)
+
 _HTML_STANDARD_ELEMENTS = frozenset({
     # HTML5 elements
     "a", "abbr", "address", "area", "article", "aside", "audio",
@@ -567,6 +578,47 @@ def _extract_astro_imports(content: str) -> list[dict]:
     return deduped
 
 
+def _extract_svelte_imports(content: str) -> list[dict]:
+    """Extract imports from a Svelte SFC: <script> ESM imports + template usage.
+
+    Svelte has no frontmatter fence or <template> wrapper — imports live in the
+    <script> block and components are used directly in markup. The ESM import scan
+    runs over the whole file (the JS import regexes only match import statements).
+    The component-tag scan runs over the markup with <script>/<style> block bodies
+    stripped, so TypeScript generics (`identity<T>`, `Array<Item>`) aren't misread
+    as component tags. Mirrors _extract_astro_imports (mask HTML comments,
+    PascalCase component tags, dedupe).
+    """
+    edges = _extract_js_imports(content)
+
+    markup = _SVELTE_SCRIPT_STYLE_BLOCK.sub("", content)
+    template_components = _extract_astro_template_components(markup)
+    if not template_components:
+        return edges
+
+    imported_names: set[str] = set()
+    for edge in edges:
+        imported_names.update(edge.get("names", []))
+
+    for component in template_components:
+        if component in imported_names:
+            continue
+        edges.append({"specifier": component, "names": [component]})
+
+    deduped: list[dict] = []
+    seen_keys: set[tuple[Optional[str], tuple[str, ...]]] = set()
+    for edge in edges:
+        key = (
+            edge.get("specifier"),
+            tuple(edge.get("names", [])),
+        )
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(edge)
+    return deduped
+
+
 _LANGUAGE_EXTRACTORS = {
     "javascript": _extract_js_imports,
     "typescript": _extract_js_imports,
@@ -574,6 +626,7 @@ _LANGUAGE_EXTRACTORS = {
     "jsx": _extract_js_imports,
     "astro": _extract_astro_imports,
     "vue": _extract_vue_imports,
+    "svelte": _extract_svelte_imports,
     "python": _extract_python_imports,
     "go": _extract_go_imports,
     "java": lambda c: _extract_java_imports(c, "java"),
