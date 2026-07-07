@@ -2,6 +2,25 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.107] - 2026-07-06 - Audit W1: the watcher fast path re-enriches changed symbols
+
+### Fixed
+
+- **A watched edit no longer drops context-provider enrichment.** The watcher
+  fast path set `active_providers=[]` to skip the provider discovery walk (each
+  provider's `detect()`/`load()` — a `git log` or a tree walk, hundreds of ms),
+  but that also skipped `enrich_symbols`, so a symbol re-parsed after a watched
+  edit lost its provider enrichment (git-blame `last_author`/`last_modified`
+  keywords, framework `ecosystem_context`) until the next full reindex.
+  Discovery is the expensive step and providers don't change between edits, so
+  the discovered set is now cached per folder at full-index time and reused on
+  the fast path (discovered once on a cache miss, e.g. the first fast cycle after
+  a restart). Enrichment itself is cheap dict lookups, so this stays on the
+  synchronous fast path with no added discovery cost per edit. `collect_metadata`
+  and `collect_extra_imports` also run again on the fast path as a result, so
+  `context_metadata` and framework import edges stay fresh too. New tests in
+  `tests/test_v1_108_107.py`. No `INDEX_VERSION` bump.
+
 ## [1.108.106] - 2026-07-06 - Audit W7: incremental_save refreshes package_names
 
 ### Fixed

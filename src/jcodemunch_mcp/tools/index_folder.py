@@ -533,6 +533,43 @@ from ._indexing_pipeline import (
 from .package_registry import extract_package_names as _extract_package_names
 
 
+# Watcher fast-path enrichment (audit W1). Discovering context providers runs
+# each provider's detect()/load() — a `git log` or a tree walk, ~hundreds of ms.
+# Per-symbol enrich_symbols() is cheap dict lookups. Providers don't change
+# between file edits, so the discovered set from the initial full index is cached
+# per folder and reused on subsequent watched edits, letting changed symbols keep
+# their ecosystem_context / provider keywords without re-running discovery.
+_PROVIDER_CACHE: dict[str, list] = {}
+
+
+def _resolve_active_providers(folder_path: Path, context_providers: bool) -> list:
+    """Discover the active, config-gated context providers for a folder."""
+    enabled = context_providers and _config.get(
+        "context_providers", True, repo=str(folder_path)
+    )
+    active = discover_providers(folder_path) if enabled else []
+    # Gate the SQL-dependent dbt provider when SQL is disabled for this repo.
+    if active and not _config.is_language_enabled("sql", repo=str(folder_path)):
+        active = [p for p in active if p.name != "dbt"]
+    return active
+
+
+def _cache_active_providers(folder_path: Path, providers: list) -> None:
+    """Remember a folder's providers for the watcher fast path (audit W1)."""
+    _PROVIDER_CACHE[str(folder_path)] = providers
+
+
+def _fast_path_providers(folder_path: Path, context_providers: bool) -> list:
+    """Providers for a watched edit: reuse the initial full-index detection,
+    discovering once on a cache miss (e.g. first fast cycle after a restart)."""
+    cached = _PROVIDER_CACHE.get(str(folder_path))
+    if cached is not None:
+        return cached
+    providers = _resolve_active_providers(folder_path, context_providers)
+    _cache_active_providers(folder_path, providers)
+    return providers
+
+
 def _scan_package_json_forced_paths(folder_path: Path) -> set[str]:
     """Pre-scan ``package.json`` files under ``folder_path`` to collect the
     absolute paths of files referenced by ``main``/``module``/``exports``/
@@ -1298,11 +1335,14 @@ def index_folder(
                     _old_hash_map[rel_path] = old_hash
 
             if existing_index is not None or use_memory_hash_cache:
-                # Skip discover_providers on the watcher fast path — provider
-                # detection walks the tree (~500ms) and providers don't change
-                # between file edits.  The initial index_folder call (without
-                # changed_paths) already ran provider detection.
-                active_providers = []
+                # Reuse the providers discovered by the initial full index so a
+                # watched edit re-enriches its changed symbols (ecosystem_context
+                # / keywords) rather than dropping enrichment until the next full
+                # reindex (audit W1). Discovery is the ~hundreds-of-ms cost and
+                # providers don't change between edits, so the cached set is
+                # reused; enrichment itself is cheap dict lookups. Discovered once
+                # on a cache miss (first fast cycle after a process restart).
+                active_providers = _fast_path_providers(folder_path, context_providers)
 
                 # Classify watcher events into changed/new/deleted rel_paths
                 changed_files: list[str] = []
@@ -1641,21 +1681,11 @@ def index_folder(
 
         # Discover context providers (dbt, terraform, etc.).
         # Project-overridable (#301): per-repo feature toggle for context providers.
-        _providers_enabled = context_providers and _config.get(
-            "context_providers", True, repo=str(folder_path)
-        )
-        active_providers = discover_providers(folder_path) if _providers_enabled else []
-        # Gate SQL-dependent providers: when SQL is removed from languages config,
-        # filter out the dbt provider to avoid unnecessary detection overhead.
-        # Project-overridable (#301): `languages` is the canonical per-project gate.
-        if active_providers and not _config.is_language_enabled("sql", repo=str(folder_path)):
-            active_providers = [p for p in active_providers if p.name != "dbt"]
-            if active_providers:
-                names = ", ".join(p.name for p in active_providers)
-                logger.info("Active context providers (SQL disabled): %s", names)
-            else:
-                logger.info("Active context providers: none (SQL disabled)")
-        elif active_providers:
+        active_providers = _resolve_active_providers(folder_path, context_providers)
+        # Cache for the watcher fast path (audit W1): subsequent watched edits
+        # reuse this detection instead of re-running the discovery walk each edit.
+        _cache_active_providers(folder_path, active_providers)
+        if active_providers:
             names = ", ".join(p.name for p in active_providers)
             logger.info("Active context providers: %s", names)
 
