@@ -2,6 +2,40 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.109] - 2026-07-07 - Svelte (.svelte) language support
+
+### Added
+
+- **Svelte single-file components are now indexed.** `.svelte` files were dropped
+  at discovery as `wrong_extension`, so a SvelteKit codebase was invisible to every
+  jcodemunch tool. The surrounding infrastructure was already wired (`.svelte` in the
+  JS-family extension set, `$lib`/`.svelte-kit` alias resolution, the hook nudge); this
+  release adds the missing parser layer. New `_parse_svelte_symbols` mirrors the
+  tree-sitter Vue parser (`_parse_vue_symbols`) — each `<script>` block's `raw_text` is
+  re-parsed with the JS/TS grammar and walked for a synthetic component symbol
+  (`kind=class`), top-level functions/classes/interfaces/types, Svelte 5 runes
+  (`let x = $state(...)` / `$derived(...)`, incl. the `$derived.by` member form and
+  destructured `let { a, b } = $props()`), Svelte 4 props (`export let` / `export const`),
+  and Svelte 4 reactive labels (`$: doubled = ...`) — the last three surfaced as
+  `kind=constant`. Both an instance `<script>` and a module `<script context="module">`
+  block are parsed, each with its own line offset. Symbols carry `language="svelte"`,
+  matching Vue's `"vue"` convention.
+- **Import extraction for Svelte.** New `_extract_svelte_imports` mirrors
+  `_extract_astro_imports`: a whole-file ESM scan plus PascalCase component-usage edges
+  over the HTML-comment-masked body, with `<script>`/`<style>` block bodies stripped
+  first so TypeScript generics (`identity<T>`, `Array<Item>`) aren't misread as component
+  tags.
+- **Registration + secondary parity.** `.svelte` -> `svelte` in `LANGUAGE_EXTENSIONS`,
+  a new `SVELTE_SPEC` + `LANGUAGE_REGISTRY` entry (auto-flows into the MCP language enum
+  and config validation); `svelte` added to the JS-family tuples in `package_registry.py`
+  and to the import/decl patterns and import-statement generator in `plan_refactoring.py`.
+  `LANGUAGE_SUPPORT.md` gains a Svelte row + valid-name entry.
+
+Purely additive: no INDEX_VERSION bump — previously-skipped `.svelte` files simply gain
+symbols on the next index, the same as the Astro and template-language releases.
+New `tests/test_svelte.py` (14) + `tests/fixtures/svelte/`. Contributed by @thomasmodeneis
+(PR #362).
+
 ## [1.108.108] - 2026-07-06 - Audit WS-5 tail: atomic content-body writes + four-path persistence test
 
 ### Fixed
