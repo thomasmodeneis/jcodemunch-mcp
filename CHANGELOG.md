@@ -2,6 +2,33 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.113] - 2026-07-07 - New tool: get_architecture_metrics (Gini / Lakos depth / DSM)
+
+### Added
+
+- **`get_architecture_metrics`** — structural concentration, dependency depth, and
+  modularity in one read-only call, over the file-level import graph:
+  - **concentration (Gini):** the Gini coefficient (0 = perfectly even, ->1 =
+    hoarded in a few files) over per-file symbol count, byte size, fan-in
+    (importers), and fan-out (imports), plus the top concentrators per metric.
+    Answers "is complexity/coupling piling up in a handful of files?" — which a
+    hotspot list (the peaks) can't tell you.
+  - **depth (Lakos):** the longest dependency chain and the level distribution
+    over the cycle-condensed dependency DAG (Lakos levelization).
+  - **modularity (DSM):** cluster count + the hidden coupling a Design Structure
+    Matrix highlights (back-edges = cycle-participating import edges) — without the
+    N*N matrix.
+- One tool, not three — the compact composite of what a Gini tool + a
+  dependency-depth tool + a DSM tool report separately. Reuses `_build_adjacency`
+  (the file dependency graph) and the Kosaraju SCC pass; **does not** duplicate
+  `get_layer_violations` (specific violations) or `get_dependency_cycles` (the
+  cycles), and **does not** touch the health-radar composite, so observatory
+  scores stay comparable.
+- Read-only; degrades honestly to symbols/bytes concentration when no import data
+  is present (GitHub-indexed / pre-1.3.0). Standard tier (`core_compact` unchanged
+  at 3969); no new tables, **no INDEX_VERSION bump**. Tool count **90** in `full`.
+  New `tests/test_architecture_metrics.py` (10).
+
 ## [1.108.112] - 2026-07-07 - New tool: get_decorator_census (decorator/annotation census)
 
 ### Added

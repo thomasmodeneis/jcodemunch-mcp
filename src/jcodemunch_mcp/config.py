@@ -330,7 +330,8 @@ DEFAULTS = {
             "get_repo_health", "search_ast", "winnow_symbols",
             "get_dependency_cycles", "get_coupling_metrics",
             "get_layer_violations", "get_cross_repo_map", "get_group_contracts",
-            "get_tectonic_map", "get_signal_chains", "get_decorator_census", "render_diagram",
+            "get_tectonic_map", "get_signal_chains", "get_decorator_census",
+            "get_architecture_metrics", "render_diagram",
             "get_project_intel", "list_workspaces", "invalidate_cache", "get_watch_status",
             "analyze_perf", "tune_weights", "check_embedding_drift", "suggest_corrections",
             "digest", "diff_health_radar", "get_file_risk",
@@ -1723,6 +1724,7 @@ def generate_template() -> str:
         "find_importers",
         "find_references",
         "find_unused_paths",
+        "get_architecture_metrics",
         "get_blast_radius",
         "get_call_hierarchy",
         "get_changed_symbols",
@@ -2015,7 +2017,8 @@ def generate_template() -> str:
       "get_repo_health", "search_ast", "winnow_symbols",
       "get_dependency_cycles", "get_coupling_metrics",
       "get_layer_violations", "get_cross_repo_map", "get_group_contracts",
-      "get_tectonic_map", "get_signal_chains", "get_decorator_census", "render_diagram",
+      "get_tectonic_map", "get_signal_chains", "get_decorator_census",
+      "get_architecture_metrics", "render_diagram",
       "get_project_intel", "list_workspaces", "invalidate_cache"
     ]
   }},

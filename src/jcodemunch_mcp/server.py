@@ -68,7 +68,7 @@ _CANONICAL_TOOL_NAMES: tuple[str, ...] = (
     # Architecture
     "get_dependency_cycles", "get_coupling_metrics", "get_layer_violations",
     "get_extraction_candidates", "get_cross_repo_map", "get_group_contracts",
-    "get_tectonic_map", "get_signal_chains", "get_decorator_census",
+    "get_tectonic_map", "get_signal_chains", "get_decorator_census", "get_architecture_metrics",
     "render_diagram", "get_project_intel", "list_workspaces",
     # Quality & Metrics
     "get_symbol_complexity", "get_churn_rate", "get_delivery_metrics", "get_hotspots",
@@ -128,7 +128,8 @@ _SNIPPET_TOOL_CATEGORIES: list[tuple[str, list[str]]] = [
                       "get_cross_repo_map", "get_tectonic_map",
                       "get_signal_chains", "render_diagram",
                       "get_project_intel", "list_workspaces",
-                      "get_group_contracts", "get_decorator_census"]),
+                      "get_group_contracts", "get_decorator_census",
+                      "get_architecture_metrics"]),
     ("Quality & Metrics", ["get_symbol_complexity", "get_churn_rate",
                             "get_delivery_metrics", "get_parity_map", "get_hotspots",
                             "get_repo_health", "diff_health_radar",
@@ -193,7 +194,7 @@ _TOOL_TIER_STANDARD: frozenset[str] = _TOOL_TIER_CORE | frozenset({
     # Architecture
     "get_dependency_cycles", "get_coupling_metrics", "get_layer_violations",
     "get_cross_repo_map", "get_group_contracts",
-    "get_tectonic_map", "get_signal_chains", "get_decorator_census",
+    "get_tectonic_map", "get_signal_chains", "get_decorator_census", "get_architecture_metrics",
     "render_diagram", "get_project_intel", "list_workspaces",
     # Utilities
     "invalidate_cache", "get_watch_status", "analyze_perf", "tune_weights", "check_embedding_drift",
@@ -3037,6 +3038,36 @@ def _build_tools_list() -> list[Tool]:
             },
         ),
         Tool(
+            name="get_architecture_metrics",
+            description=(
+                "Structural concentration, dependency depth, and modularity in one read-only "
+                "call, over the file import graph. concentration: Gini coefficient (0 even -> 1 "
+                "hoarded) over per-file symbol count, size, fan-in (importers), and fan-out "
+                "(imports) + the top concentrators — answers 'is complexity/coupling piling up in "
+                "a few files?' which a hotspot list (the peaks) can't. depth: longest dependency "
+                "chain + level distribution (Lakos levelization) over the cycle-condensed DAG. "
+                "modularity: cluster count + the hidden coupling a Design Structure Matrix "
+                "highlights (back-edges = cycle-participating import edges) without the NxN matrix. "
+                "Does not duplicate get_layer_violations (specific violations) or "
+                "get_dependency_cycles (the cycles); does not touch the health-radar composite."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository identifier (owner/repo or just repo name)",
+                    },
+                    "top_n": {
+                        "type": "integer",
+                        "description": "Number of top concentrators to list per Gini metric (default 10).",
+                        "default": 10,
+                    },
+                },
+                "required": ["repo"],
+            },
+        ),
+        Tool(
             name="get_hotspots",
             description=(
                 "Return the top-N highest-risk symbols ranked by hotspot score = "
@@ -5272,6 +5303,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
                     include_sites=arguments.get("include_sites", False),
                     max_decorators=arguments.get("max_decorators", 100),
                     max_sites_per=arguments.get("max_sites_per", 50),
+                    storage_path=storage_path,
+                )
+            )
+        elif name == "get_architecture_metrics":
+            from .tools.get_architecture_metrics import get_architecture_metrics
+            result = await asyncio.to_thread(
+                functools.partial(
+                    get_architecture_metrics,
+                    repo=arguments["repo"],
+                    top_n=arguments.get("top_n", 10),
                     storage_path=storage_path,
                 )
             )
