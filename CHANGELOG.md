@@ -2,6 +2,28 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.110] - 2026-07-07 - check_embedding_drift marked mutating (readOnlyHint suite parity)
+
+### Changed
+
+- **`check_embedding_drift` now advertises `readOnlyHint=False`.** jcm was the
+  outlier in the suite: jdoc (v1.93.0) and jdata (v1.17.0) already mark this tool
+  as mutating because `force=true` re-pins the drift canary (a write), while jcm
+  reported it read-only. Claude Code plan mode would therefore run
+  `check_embedding_drift(force=true)` silently. It is now in the annotation
+  write-set, matching the siblings.
+- The tool is deliberately **not** added to `counter.STATE_CHANGING_ACTIONS`: that
+  set gates the counter's `order()` dispatcher, and its default path is a pure
+  drift report. A new `_ANNOTATION_ONLY_WRITERS` frozenset carries dual-mode tools
+  (read by default, write under a specific arg) into `_NON_READONLY_TOOLS` without
+  forcing the `allow_state_change=true` opt-in on their common read path — so
+  `order("check_embedding_drift")` still runs the report without a state-change
+  flag.
+
+Purely an annotation change; no INDEX_VERSION bump, no wire/behavior change to the
+tool itself. New `tests/test_v1_108_110.py` (4) + extended
+`tests/test_readonly_annotations.py`.
+
 ## [1.108.109] - 2026-07-07 - Svelte (.svelte) language support
 
 ### Added

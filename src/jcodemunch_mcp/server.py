@@ -947,16 +947,29 @@ async def list_tools() -> list[Tool]:
 # while still gating the handful that mutate index/session/config state.
 #
 # The write-set is derived from the authoritative counter.STATE_CHANGING_ACTIONS
-# so it can't drift from source. Only the counter front door is added on top:
+# so it can't drift from source. Two things are added on top:
 #   * order / route — the front door can dispatch a state-changing action, so
 #     they are not read-only. (menu stays read-only.)
+#   * _ANNOTATION_ONLY_WRITERS — dual-mode tools whose DEFAULT path is a pure read
+#     but which can mutate under a specific argument. They must be readOnlyHint=
+#     False (conservative — mislabeling a writer read-only is the harmful
+#     direction, and this matches jdoc/jdata's write-set), yet they are
+#     deliberately NOT in counter.STATE_CHANGING_ACTIONS: that set gates the
+#     order() dispatcher's allow_state_change opt-in, and forcing it on the common
+#     read path would break e.g. order("check_embedding_drift") drift reports. So
+#     the annotation write-set and the order-gate write-set diverge by exactly
+#     these dual-mode tools.
 # (index_dependency lives in STATE_CHANGING_ACTIONS itself as of v1.108.104, so
 # it no longer needs a special case here — the counter's order gate and these
-# annotations now derive from one list.)
+# annotations otherwise derive from one list.)
+_ANNOTATION_ONLY_WRITERS: frozenset[str] = frozenset({
+    "check_embedding_drift",  # reports by default; force=true re-pins the canary
+})
+
 _NON_READONLY_TOOLS: frozenset[str] = _counter.STATE_CHANGING_ACTIONS | {
     "order",
     "route",
-}
+} | _ANNOTATION_ONLY_WRITERS
 
 
 def _apply_readonly_annotations(tools: list[Tool]) -> list[Tool]:

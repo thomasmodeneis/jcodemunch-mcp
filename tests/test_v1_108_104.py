@@ -37,4 +37,10 @@ def test_annotation_writeset_no_longer_special_cases_index_dependency():
     # index_dependency is marked mutating purely because it now lives in the
     # authoritative set, not via a hand-added name in server._NON_READONLY_TOOLS.
     assert "index_dependency" in counter.STATE_CHANGING_ACTIONS
-    assert server._NON_READONLY_TOOLS == counter.STATE_CHANGING_ACTIONS | {"order", "route"}
+    assert "index_dependency" not in server._ANNOTATION_ONLY_WRITERS
+    # The annotation write-set is the authoritative state-changing set + the counter
+    # front door + the dual-mode annotation-only writers (v1.108.110). index_dependency
+    # must ride in via STATE_CHANGING_ACTIONS, never the annotation-only escape hatch.
+    assert server._NON_READONLY_TOOLS == (
+        counter.STATE_CHANGING_ACTIONS | {"order", "route"} | server._ANNOTATION_ONLY_WRITERS
+    )

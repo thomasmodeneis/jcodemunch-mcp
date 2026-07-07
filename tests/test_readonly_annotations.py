@@ -66,8 +66,22 @@ def test_representative_read_and_write_tools():
             f"{read_tool} should be read-only"
         )
 
-    for write_tool in ("index_folder", "register_edit", "index_dependency", "set_tool_tier"):
+    # check_embedding_drift is annotation-only non-read-only (force=true re-pins
+    # the canary) — a dual-mode tool NOT in STATE_CHANGING_ACTIONS but still marked
+    # mutating for plan mode, matching jdoc/jdata (v1.108.110).
+    for write_tool in (
+        "index_folder", "register_edit", "index_dependency",
+        "set_tool_tier", "check_embedding_drift",
+    ):
         assert write_tool in by_name, f"{write_tool} unexpectedly absent"
         assert by_name[write_tool].annotations.readOnlyHint is False, (
             f"{write_tool} should be marked mutating"
         )
+
+
+def test_annotation_only_writers_not_in_state_changing_actions():
+    """The annotation-only writers must stay OUT of counter.STATE_CHANGING_ACTIONS
+    so the order() dispatcher doesn't force allow_state_change on their default
+    read path, while still being marked non-read-only for plan mode."""
+    assert server._ANNOTATION_ONLY_WRITERS <= server._NON_READONLY_TOOLS
+    assert not (server._ANNOTATION_ONLY_WRITERS & counter.STATE_CHANGING_ACTIONS)
