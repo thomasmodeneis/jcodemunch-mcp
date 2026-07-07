@@ -43,7 +43,7 @@ FRONT_DOOR: frozenset[str] = frozenset({"order", "menu", "route"})
 # but ``order`` requires an explicit ``allow_state_change=true`` before
 # dispatching one, so the front door reads as read-only by default.
 STATE_CHANGING_ACTIONS: frozenset[str] = frozenset({
-    "index_repo", "index_folder", "index_file",
+    "index_repo", "index_folder", "index_file", "index_dependency",
     "invalidate_cache", "register_edit", "tune_weights",
     "set_tool_tier", "announce_model", "embed_repo",
     "import_runtime_signal", "summarize_repo",

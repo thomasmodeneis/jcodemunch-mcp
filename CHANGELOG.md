@@ -2,6 +2,31 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.104] - 2026-07-06 - Close the `index_dependency` gap in the counter's state-change gate
+
+### Fixed
+
+- **`order("index_dependency", ...)` now requires `allow_state_change=true`.**
+  PR #361 (readOnlyHint annotations, thomasmodeneis) surfaced that
+  `index_dependency` — a real write tool (dependency snapshot + reindex) — was
+  missing from `counter.STATE_CHANGING_ACTIONS`. That set gates the counter's
+  `order` dispatcher, so the read-only front door was routing a mutating tool
+  without the state-change opt-in it requires for every other write action.
+  Added `index_dependency` to `STATE_CHANGING_ACTIONS` at the source, so the
+  `order` gate and the `readOnlyHint` annotations from #361 now derive from one
+  list (`server._NON_READONLY_TOOLS` no longer special-cases it). New tests in
+  `tests/test_v1_108_104.py`. No `INDEX_VERSION` bump.
+
+### Added
+
+- **Every tool advertises `ToolAnnotations(readOnlyHint=...)` (PR #361).** MCP
+  clients that gate execution (Claude Code plan mode) prompted for approval on
+  every jcm call because tools carried no annotations. Read tools are now
+  `readOnlyHint=True` (plan mode runs them silently) and the write-set is
+  `False`. Applied at one choke point in `_build_tools_list` on every surface;
+  the write-set derives from `counter.STATE_CHANGING_ACTIONS` so it can't drift.
+  Thanks to @thomasmodeneis.
+
 ## [1.108.103] - 2026-07-06 - Audit WS-6: parser correctness (V7 nested-function misclassification + V8 syntax-error symbol loss)
 
 ### Fixed

@@ -16,9 +16,9 @@ from jcodemunch_mcp import counter
 
 
 # Minimum set of mutating tools the annotation logic MUST mark non-read-only.
-# index_dependency is a real write tool (snapshots + reindexes) absent from
-# counter.STATE_CHANGING_ACTIONS; driving off that set keeps this from drifting.
-_EXPECTED_MIN_WRITE = counter.STATE_CHANGING_ACTIONS | {"index_dependency"}
+# Driven off the authoritative counter.STATE_CHANGING_ACTIONS (which includes
+# index_dependency as of v1.108.104) so this can't drift from source.
+_EXPECTED_MIN_WRITE = counter.STATE_CHANGING_ACTIONS
 
 
 def test_non_readonly_set_covers_authoritative_write_actions():

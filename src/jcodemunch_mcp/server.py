@@ -947,13 +947,13 @@ async def list_tools() -> list[Tool]:
 # while still gating the handful that mutate index/session/config state.
 #
 # The write-set is derived from the authoritative counter.STATE_CHANGING_ACTIONS
-# so it can't drift from source. Two names are added on top:
-#   * index_dependency — a real write tool (snapshots + reindexes) that is
-#     missing from counter.STATE_CHANGING_ACTIONS (latent gap in that set).
-#   * order / route — the counter front door can dispatch a state-changing
-#     action, so they are not read-only. (menu stays read-only.)
+# so it can't drift from source. Only the counter front door is added on top:
+#   * order / route — the front door can dispatch a state-changing action, so
+#     they are not read-only. (menu stays read-only.)
+# (index_dependency lives in STATE_CHANGING_ACTIONS itself as of v1.108.104, so
+# it no longer needs a special case here — the counter's order gate and these
+# annotations now derive from one list.)
 _NON_READONLY_TOOLS: frozenset[str] = _counter.STATE_CHANGING_ACTIONS | {
-    "index_dependency",
     "order",
     "route",
 }
