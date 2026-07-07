@@ -2,6 +2,40 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.111] - 2026-07-07 - New tool: get_parity_map (migration parity map)
+
+### Added
+
+- **`get_parity_map`** — correspondence-aware migration/port parity between a
+  SOURCE symbol tree and a TARGET tree (two subpaths of one repo, or two repos).
+  For each source function/method/class it reports **ported** (an equivalent
+  counterpart exists), **ported_diverged** (a counterpart exists but its
+  signature/body drifted — the failure a name-only "exists in both trees" check
+  reports as done), **unported** (no counterpart, still referenced by source
+  code), **orphaned** (unmatched with no in-scope caller — an entry point or a
+  possible intentional drop), or **added** (target-only surface). Rename-aware:
+  a ported-and-renamed symbol (`getUserById` → `fetch_user`) is matched by a
+  structural+behavioral similarity blend (signature-token Jaccard + callee-name
+  Jaccard + byte-length ratio), not reported as a false unported+added pair.
+- When `include_port_plan` is set, the unmatched source symbols are ordered by
+  the source dependency graph (leaves first) so nothing is ported before what it
+  calls; import cycles are collapsed to an `scc_group` (ported together) via the
+  existing Kosaraju SCC pass, and each entry carries `unblocked` +
+  `blocking_deps` so the agent can pick the next actionable symbol.
+- **Read-only and plan-only.** It maps the migration and orders the work; it
+  never edits, moves, or ports anything — that stays the caller's keystroke.
+  `parity_pct` is a labelled estimate (`ported / (ported + ported_diverged +
+  unported + orphaned)`); `added` is excluded from parity. All reuse — no new
+  index tables, **no INDEX_VERSION bump**. Standard tier (`core_compact`
+  unchanged at 3969). Divergence policy `signature` (default) / `signature+body`
+  / `name_only`; rename matching on by default with an auto-disable + honest note
+  past the pair budget on very large scopes.
+- New `parity` CLI: `parity <source> <target> [--source-path] [--target-path]
+  [--match-threshold] [--divergence] [--no-rename] [--no-port-plan] [--json]`.
+- `parity_axes` is a reserved (empty in P1) slot for the P3 suite axes (jdoc
+  doc-parity, jdata schema-parity). Tool count **88** in `full`. New
+  `tests/test_parity_map.py` (17). See `docs/prd-parity-map.md`.
+
 ## [1.108.110] - 2026-07-07 - check_embedding_drift marked mutating (readOnlyHint suite parity)
 
 ### Changed

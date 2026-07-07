@@ -72,6 +72,7 @@ _CANONICAL_TOOL_NAMES: tuple[str, ...] = (
     "render_diagram", "get_project_intel", "list_workspaces",
     # Quality & Metrics
     "get_symbol_complexity", "get_churn_rate", "get_delivery_metrics", "get_hotspots",
+    "get_parity_map",
     "get_repo_health", "get_symbol_importance", "get_repo_map", "find_dead_code",
     "get_dead_code_v2", "get_untested_symbols", "find_similar_symbols", "search_ast",
     # Diffs & Embeddings
@@ -129,7 +130,7 @@ _SNIPPET_TOOL_CATEGORIES: list[tuple[str, list[str]]] = [
                       "get_project_intel", "list_workspaces",
                       "get_group_contracts"]),
     ("Quality & Metrics", ["get_symbol_complexity", "get_churn_rate",
-                            "get_delivery_metrics", "get_hotspots",
+                            "get_delivery_metrics", "get_parity_map", "get_hotspots",
                             "get_repo_health", "diff_health_radar",
                             "get_file_risk", "get_symbol_importance",
                             "get_repo_map", "find_similar_symbols",
@@ -185,6 +186,7 @@ _TOOL_TIER_STANDARD: frozenset[str] = _TOOL_TIER_CORE | frozenset({
     "find_implementations",
     # Quality & Metrics
     "get_symbol_complexity", "get_churn_rate", "get_delivery_metrics", "get_hotspots",
+    "get_parity_map",
     "get_symbol_importance", "get_repo_map", "find_dead_code", "get_dead_code_v2",
     "get_untested_symbols", "find_similar_symbols",
     "get_repo_health", "search_ast", "winnow_symbols",
@@ -2921,6 +2923,67 @@ def _build_tools_list() -> list[Tool]:
             },
         ),
         Tool(
+            name="get_parity_map",
+            description=(
+                "Map migration/port parity between a SOURCE symbol tree and a TARGET tree "
+                "(two subpaths of one repo, or two repos). For each source function/method/class "
+                "it reports: ported (equivalent counterpart exists), ported_diverged (counterpart "
+                "exists but its signature/body drifted — the failure a name-only check reports as "
+                "done), unported (no counterpart), orphaned (unported and no migrated caller — a "
+                "possible intentional drop), or added (target-only surface). Rename-aware: a "
+                "ported-and-renamed symbol is matched by structural+behavioral similarity, not a "
+                "false unported+added pair. When include_port_plan is set, the unported symbols are "
+                "ordered by the source dependency graph (leaves first) with cycles grouped, each "
+                "carrying unblocked + blocking_deps. Read-only and plan-only: it never edits or "
+                "ports anything. parity_pct is a labelled estimate."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_repo": {
+                        "type": "string",
+                        "description": "Repo id of the tree being ported FROM.",
+                    },
+                    "target_repo": {
+                        "type": "string",
+                        "description": "Repo id of the tree being ported TO (may equal source_repo).",
+                    },
+                    "source_path": {
+                        "type": "string",
+                        "description": "Optional subtree within source_repo (file-path prefix).",
+                    },
+                    "target_path": {
+                        "type": "string",
+                        "description": "Optional subtree within target_repo (file-path prefix).",
+                    },
+                    "match_threshold": {
+                        "type": "number",
+                        "description": "Similarity floor (0-1) for rename matching (default 0.75).",
+                        "default": 0.75,
+                    },
+                    "divergence": {
+                        "type": "string",
+                        "description": "Divergence policy: 'signature' (default), 'signature+body', "
+                                       "or 'name_only' (presence only, no divergence check).",
+                        "enum": ["signature", "signature+body", "name_only"],
+                        "default": "signature",
+                    },
+                    "rename": {
+                        "type": "boolean",
+                        "description": "Match renamed symbols by similarity (default true). "
+                                       "Auto-disabled past the pair budget on very large scopes.",
+                        "default": True,
+                    },
+                    "include_port_plan": {
+                        "type": "boolean",
+                        "description": "Emit the dependency-ordered plan over unported symbols.",
+                        "default": True,
+                    },
+                },
+                "required": ["source_repo", "target_repo"],
+            },
+        ),
+        Tool(
             name="get_hotspots",
             description=(
                 "Return the top-N highest-risk symbols ranked by hotspot score = "
@@ -5125,6 +5188,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
                     repo=arguments["repo"],
                     window_days=arguments.get("window_days", 30),
                     rework_horizon_days=arguments.get("rework_horizon_days", 14),
+                    storage_path=storage_path,
+                )
+            )
+        elif name == "get_parity_map":
+            from .tools.get_parity_map import get_parity_map
+            result = await asyncio.to_thread(
+                functools.partial(
+                    get_parity_map,
+                    source_repo=arguments["source_repo"],
+                    target_repo=arguments["target_repo"],
+                    source_path=arguments.get("source_path"),
+                    target_path=arguments.get("target_path"),
+                    match_threshold=arguments.get("match_threshold", 0.75),
+                    divergence=arguments.get("divergence", "signature"),
+                    rename=arguments.get("rename", True),
+                    include_port_plan=arguments.get("include_port_plan", True),
                     storage_path=storage_path,
                 )
             )
@@ -7728,6 +7807,33 @@ def main(argv: Optional[list[str]] = None):
     delivery_parser.add_argument("--storage-path", default=None,
         help="Override index storage location.")
 
+    # --- parity ---
+    parity_parser = subparsers.add_parser(
+        "parity",
+        help="Map migration parity between two symbol trees (ported / diverged / unported) + port plan.",
+    )
+    parity_parser.add_argument("source",
+        help="Source repo id (ported FROM); a path, owner/name, or bare display name.")
+    parity_parser.add_argument("target",
+        help="Target repo id (ported TO); may equal source when comparing two subpaths.")
+    parity_parser.add_argument("--source-path", default=None,
+        help="Optional subtree within the source repo (file-path prefix).")
+    parity_parser.add_argument("--target-path", default=None,
+        help="Optional subtree within the target repo (file-path prefix).")
+    parity_parser.add_argument("--match-threshold", type=float, default=0.75,
+        help="Similarity floor (0-1) for rename matching (default 0.75).")
+    parity_parser.add_argument("--divergence", default="signature",
+        choices=["signature", "signature+body", "name_only"],
+        help="Divergence policy (default 'signature').")
+    parity_parser.add_argument("--no-rename", action="store_true",
+        help="Disable rename matching (exact-name only).")
+    parity_parser.add_argument("--no-port-plan", action="store_true",
+        help="Skip the dependency-ordered port plan.")
+    parity_parser.add_argument("--json", action="store_true",
+        help="Emit the structured payload as JSON.")
+    parity_parser.add_argument("--storage-path", default=None,
+        help="Override index storage location.")
+
     # --- digest ---
     digest_parser = subparsers.add_parser(
         "digest",
@@ -7960,7 +8066,7 @@ def main(argv: Optional[list[str]] = None):
     if any(arg in top_level_flags for arg in raw_argv):
         args = parser.parse_args(raw_argv)
     else:
-        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "health", "file-risk", "observatory", "keyring"}
+        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "health", "file-risk", "observatory", "keyring"}
         # MCP-tool-name typos: route to the right CLI verb with a friendly hint.
         # `index_repo` and `index_folder` are MCP tools, not CLI subcommands.
         _CLI_ALIASES = {
@@ -8400,6 +8506,25 @@ def main(argv: Optional[list[str]] = None):
         if args.storage_path:
             argv += ["--storage-path", args.storage_path]
         sys.exit(delivery_main(argv))
+
+    if args.command == "parity":
+        from .cli.parity import main as parity_main
+        argv = [args.source, args.target,
+                "--match-threshold", str(args.match_threshold),
+                "--divergence", args.divergence]
+        if args.source_path:
+            argv += ["--source-path", args.source_path]
+        if args.target_path:
+            argv += ["--target-path", args.target_path]
+        if args.no_rename:
+            argv += ["--no-rename"]
+        if args.no_port_plan:
+            argv += ["--no-port-plan"]
+        if args.json:
+            argv += ["--json"]
+        if args.storage_path:
+            argv += ["--storage-path", args.storage_path]
+        sys.exit(parity_main(argv))
 
     if args.command == "digest":
         from .cli.digest import main as digest_main
