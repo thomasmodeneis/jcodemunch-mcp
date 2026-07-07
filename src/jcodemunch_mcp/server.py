@@ -68,7 +68,7 @@ _CANONICAL_TOOL_NAMES: tuple[str, ...] = (
     # Architecture
     "get_dependency_cycles", "get_coupling_metrics", "get_layer_violations",
     "get_extraction_candidates", "get_cross_repo_map", "get_group_contracts",
-    "get_tectonic_map", "get_signal_chains",
+    "get_tectonic_map", "get_signal_chains", "get_decorator_census",
     "render_diagram", "get_project_intel", "list_workspaces",
     # Quality & Metrics
     "get_symbol_complexity", "get_churn_rate", "get_delivery_metrics", "get_hotspots",
@@ -128,7 +128,7 @@ _SNIPPET_TOOL_CATEGORIES: list[tuple[str, list[str]]] = [
                       "get_cross_repo_map", "get_tectonic_map",
                       "get_signal_chains", "render_diagram",
                       "get_project_intel", "list_workspaces",
-                      "get_group_contracts"]),
+                      "get_group_contracts", "get_decorator_census"]),
     ("Quality & Metrics", ["get_symbol_complexity", "get_churn_rate",
                             "get_delivery_metrics", "get_parity_map", "get_hotspots",
                             "get_repo_health", "diff_health_radar",
@@ -193,7 +193,7 @@ _TOOL_TIER_STANDARD: frozenset[str] = _TOOL_TIER_CORE | frozenset({
     # Architecture
     "get_dependency_cycles", "get_coupling_metrics", "get_layer_violations",
     "get_cross_repo_map", "get_group_contracts",
-    "get_tectonic_map", "get_signal_chains",
+    "get_tectonic_map", "get_signal_chains", "get_decorator_census",
     "render_diagram", "get_project_intel", "list_workspaces",
     # Utilities
     "invalidate_cache", "get_watch_status", "analyze_perf", "tune_weights", "check_embedding_drift",
@@ -2984,6 +2984,59 @@ def _build_tools_list() -> list[Tool]:
             },
         ),
         Tool(
+            name="get_decorator_census",
+            description=(
+                "Repo-wide census of decorators / annotations / attributes: 'where is every "
+                "@app.route / @Injectable / @pytest.fixture / [Serializable], and how many?' in one "
+                "read-only call. Cross-language by construction (aggregates the decorators the index "
+                "stored on each symbol). Forms are NORMALIZED (leading @, call-arguments, and [] "
+                "brackets stripped) so @app.route('/a') and @app.route('/b') count under one bucket "
+                "instead of scattering; each bucket keeps the distinct raw_forms it collapsed, a "
+                "per-decorator symbol-kind breakdown, and a file count. Filter by name_filter "
+                "(substring on the normalized name), scope_path (subtree), or kind; include_sites "
+                "lists the exact decorated symbols. Pairs with get_signal_chains / get_endpoint_impact "
+                "(this surfaces the decorator surface; those resolve what it wires together)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository identifier (owner/repo or just repo name)",
+                    },
+                    "name_filter": {
+                        "type": "string",
+                        "description": "Case-insensitive substring on the normalized decorator "
+                                       "name (e.g. 'route', 'fixture', 'inject').",
+                    },
+                    "scope_path": {
+                        "type": "string",
+                        "description": "Optional subtree prefix (file-path) to restrict the census.",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "Optional symbol-kind filter (function/method/class/...).",
+                    },
+                    "include_sites": {
+                        "type": "boolean",
+                        "description": "List the decorated symbols per bucket (capped at max_sites_per).",
+                        "default": False,
+                    },
+                    "max_decorators": {
+                        "type": "integer",
+                        "description": "Cap on histogram rows (default 100).",
+                        "default": 100,
+                    },
+                    "max_sites_per": {
+                        "type": "integer",
+                        "description": "Cap on sites listed per decorator when include_sites (default 50).",
+                        "default": 50,
+                    },
+                },
+                "required": ["repo"],
+            },
+        ),
+        Tool(
             name="get_hotspots",
             description=(
                 "Return the top-N highest-risk symbols ranked by hotspot score = "
@@ -5204,6 +5257,21 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
                     divergence=arguments.get("divergence", "signature"),
                     rename=arguments.get("rename", True),
                     include_port_plan=arguments.get("include_port_plan", True),
+                    storage_path=storage_path,
+                )
+            )
+        elif name == "get_decorator_census":
+            from .tools.get_decorator_census import get_decorator_census
+            result = await asyncio.to_thread(
+                functools.partial(
+                    get_decorator_census,
+                    repo=arguments["repo"],
+                    name_filter=arguments.get("name_filter"),
+                    scope_path=arguments.get("scope_path"),
+                    kind=arguments.get("kind"),
+                    include_sites=arguments.get("include_sites", False),
+                    max_decorators=arguments.get("max_decorators", 100),
+                    max_sites_per=arguments.get("max_sites_per", 50),
                     storage_path=storage_path,
                 )
             )

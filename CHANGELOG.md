@@ -2,6 +2,33 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.108.112] - 2026-07-07 - New tool: get_decorator_census (decorator/annotation census)
+
+### Added
+
+- **`get_decorator_census`** — repo-wide census of decorators / annotations /
+  attributes in one read-only call: "where is every `@app.route` / `@Injectable`
+  / `@pytest.fixture` / `[Serializable]`, and how many?" Cross-language by
+  construction — it aggregates the decorators the index already stores on each
+  symbol, so Python decorators, TS/Java annotations, and C# attributes all show
+  up with no per-language work.
+- Sharper than a flat string histogram: forms are **normalized** (the leading
+  `@`, call-arguments, and `[...]` brackets stripped) so `@app.route('/a')` and
+  `@app.route('/b')` count under one `app.route` bucket instead of scattering.
+  Each bucket keeps the distinct `raw_forms` it collapsed (flattened + length-
+  capped so a big `@pytest.mark.parametrize([...])` doesn't dump its table), a
+  per-decorator `symbol_kinds` breakdown, and a distinct-file count.
+- Filters: `name_filter` (substring on the normalized name), `scope_path`
+  (subtree), `kind` (symbol kind); `include_sites` lists the exact decorated
+  symbols (id/name/kind/file/line/raw, capped by `max_sites_per`). Pairs with
+  the framework-aware tools (`get_signal_chains` / `get_endpoint_impact`): this
+  surfaces the decorator surface, those resolve what it wires together.
+- Read-only. Aggregation, not retrieval — it deliberately does **not** report a
+  tokens-saved estimate (no honest "full-file read" baseline exists, matching
+  `get_delivery_metrics` / `get_hotspots`). Standard tier (`core_compact`
+  unchanged at 3969); no new tables, **no INDEX_VERSION bump**. Tool count
+  **89** in `full`. New `tests/test_decorator_census.py` (12).
+
 ## [1.108.111] - 2026-07-07 - New tool: get_parity_map (migration parity map)
 
 ### Added
